@@ -2,9 +2,12 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::modules::billing::{
-    invoices::dto::LineResponse,
-    transactions::dto::{Bucket, TxnKind},
+use crate::modules::{
+    access::tenants::dto::PracticeDetails,
+    billing::{
+        invoices::dto::LineResponse,
+        transactions::dto::{Bucket, TxnKind},
+    },
 };
 
 pub const BANDS: [&str; 7] = ["current", "30", "60", "90", "120", "150", "180+"];
@@ -81,6 +84,19 @@ pub struct Totals {
 pub struct StatementPractice {
     pub name: String,
     pub pcns_number: Option<String>,
+    /// Address, contact and banking details (all optional).
+    #[serde(flatten)]
+    pub details: PracticeDetails,
+}
+
+/// A doctor named on the statement (treating, referring or assisting).
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct StatementProvider {
+    pub id: Uuid,
+    pub name: String,
+    pub practice_number: Option<String>,
+    /// HPCSA (council) registration number.
+    pub hpcsa_number: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -132,6 +148,8 @@ pub struct StatementInvoice {
     pub invoice_date: NaiveDate,
     pub patient_id: Uuid,
     pub dependant_code: Option<String>,
+    pub treating_provider_id: Uuid,
+    pub referring_provider_id: Option<Uuid>,
     pub treating_provider: String,
     pub referring_provider: Option<String>,
     pub service_centre: String,
@@ -152,6 +170,9 @@ pub struct StatementResponse {
     pub addressee: StatementAddressee,
     pub medical_aid: Option<StatementMedicalAid>,
     pub patients: Vec<StatementPatient>,
+    /// Every doctor the invoices refer to (treating, referring, assistant),
+    /// with practice and council numbers.
+    pub providers: Vec<StatementProvider>,
     pub invoices: Vec<StatementInvoice>,
     /// Money on the account not allocated to an invoice (e.g. overpayments).
     pub unallocated: Vec<StatementLine>,

@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::{
     dto::{
         Ageing, BANDS, LedgerRow, StatementAccount, StatementAddressee, StatementInvoice, StatementLine, StatementMedicalAid,
-        StatementPractice, StatementQuery, StatementResponse, Totals,
+        StatementPractice, StatementProvider, StatementQuery, StatementResponse, Totals,
     },
     repository as repo,
 };
@@ -78,11 +78,15 @@ impl StatementsService {
         for l in invoices::repository::lines(&mut tx, t, &invoice_ids).await? {
             lines_by_invoice.entry(l.invoice_id).or_default().push(l);
         }
-        let provider_names: HashMap<Uuid, String> = providers::repository::list(&mut tx, t, None, true)
+        let all_providers: HashMap<Uuid, StatementProvider> = providers::repository::list(&mut tx, t, None, true)
             .await?
             .into_iter()
-            .map(|p| (p.id, display_name(p.title.as_deref(), p.first_name.as_deref(), &p.last_name)))
+            .map(|p| {
+                let name = display_name(p.title.as_deref(), p.first_name.as_deref(), &p.last_name);
+                (p.id, StatementProvider { id: p.id, name, practice_number: p.practice_number, hpcsa_number: p.hpcsa_number })
+            })
             .collect();
+        let provider_names: HashMap<Uuid, String> = all_providers.iter().map(|(id, p)| (*id, p.name.clone())).collect();
         let centre_names: HashMap<Uuid, String> =
             providers::repository::list_centres(&mut tx, t, true).await?.into_iter().map(|c| (c.id, c.name)).collect();
 
@@ -114,6 +118,11 @@ impl StatementsService {
         let mut grouped = group_lines(&rows, as_of, q.include_reversed);
         let dues = dues_by_invoice(&rows);
 
+        let referenced = referenced_providers(&invoice_rows, &lines_by_invoice);
+        let mut providers: Vec<StatementProvider> =
+            referenced.iter().filter_map(|id| all_providers.get(id).cloned()).collect();
+        providers.sort_by(|a, b| a.name.cmp(&b.name));
+
         let invoices = invoice_rows
             .into_iter()
             .filter_map(|i| {
@@ -125,6 +134,8 @@ impl StatementsService {
                     lines: lines_by_invoice.remove(&i.id).unwrap_or_default(),
                     transactions: grouped.remove(&Some(i.id)).unwrap_or_default(),
                     dependant_code: codes.get(&i.patient_id).cloned(),
+                    treating_provider_id: i.treating_provider_id,
+                    referring_provider_id: i.referring_provider_id,
                     treating_provider: provider_names.get(&i.treating_provider_id).cloned().unwrap_or_default(),
                     referring_provider: i.referring_provider_id.and_then(|r| provider_names.get(&r).cloned()),
                     service_centre: centre_names.get(&i.service_centre_id).cloned().unwrap_or_default(),
@@ -143,7 +154,7 @@ impl StatementsService {
         Ok(StatementResponse {
             as_of,
             generated_at: Utc::now(),
-            practice: StatementPractice { name: practice.name, pcns_number: practice.pcns_number },
+            practice: StatementPractice { name: practice.name, pcns_number: practice.pcns_number, details: practice.details },
             account: StatementAccount {
                 id: account.id,
                 account_no: account.account_no,
@@ -163,12 +174,27 @@ impl StatementsService {
             },
             medical_aid,
             patients,
+            providers,
             invoices,
             unallocated: grouped.remove(&None).unwrap_or_default(),
             totals,
             ageing,
         })
     }
+}
+
+/// Treating, referring and assistant doctors named on these invoices.
+fn referenced_providers(
+    invoices: &[invoices::repository::InvoiceRow],
+    lines: &HashMap<Uuid, Vec<invoices::dto::LineResponse>>,
+) -> HashSet<Uuid> {
+    let mut ids = HashSet::new();
+    for i in invoices {
+        ids.insert(i.treating_provider_id);
+        ids.extend(i.referring_provider_id);
+    }
+    ids.extend(lines.values().flatten().filter_map(|l| l.assistant_provider_id));
+    ids
 }
 
 // -----------------------------------------------------------------------------

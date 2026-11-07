@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::common::{
-    error::AppResult,
+    error::{AppError, AppResult},
     validation::{self, double_option},
 };
 
@@ -54,6 +54,56 @@ pub struct PracticeSummary {
     pub name: String,
 }
 
+/// Contact and banking details printed on statements. All optional.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PracticeDetails {
+    pub address_line1: Option<String>,
+    pub address_line2: Option<String>,
+    pub suburb: Option<String>,
+    pub city: Option<String>,
+    pub postal_code: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub bank_name: Option<String>,
+    pub bank_account_name: Option<String>,
+    pub bank_account_number: Option<String>,
+    pub bank_branch_code: Option<String>,
+}
+
+impl PracticeDetails {
+    /// Trim, normalise and check every field; blanks become `None`.
+    pub fn validate(self) -> AppResult<Self> {
+        let digits = |field: &str, v: Option<String>, len: std::ops::RangeInclusive<usize>| -> AppResult<Option<String>> {
+            let Some(v) = v.map(|v| v.chars().filter(|c| !c.is_whitespace() && *c != '-').collect::<String>()) else {
+                return Ok(None);
+            };
+            if v.is_empty() {
+                return Ok(None);
+            }
+            if !v.chars().all(|c| c.is_ascii_digit()) || !len.contains(&v.len()) {
+                let (lo, hi) = (len.start(), len.end());
+                let n = if lo == hi { format!("{lo}") } else { format!("{lo} to {hi}") };
+                return Err(AppError::validation(format!("{field} must be {n} digits")));
+            }
+            Ok(Some(v))
+        };
+        let blank = |v: Option<String>| v.filter(|s| !s.trim().is_empty());
+        Ok(Self {
+            address_line1: validation::optional_text("address_line1", self.address_line1.as_deref(), 200)?,
+            address_line2: validation::optional_text("address_line2", self.address_line2.as_deref(), 200)?,
+            suburb: validation::optional_text("suburb", self.suburb.as_deref(), 100)?,
+            city: validation::optional_text("city", self.city.as_deref(), 100)?,
+            postal_code: blank(self.postal_code).map(|v| validation::postal_code(&v)).transpose()?,
+            phone: blank(self.phone).map(|v| validation::phone("phone", &v)).transpose()?,
+            email: blank(self.email).map(|v| validation::email(&v)).transpose()?,
+            bank_name: validation::optional_text("bank_name", self.bank_name.as_deref(), 100)?,
+            bank_account_name: validation::optional_text("bank_account_name", self.bank_account_name.as_deref(), 100)?,
+            bank_account_number: digits("bank_account_number", self.bank_account_number, 6..=16)?,
+            bank_branch_code: digits("bank_branch_code", self.bank_branch_code, 6..=6)?,
+        })
+    }
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TenantResponse {
     pub id: Uuid,
@@ -62,6 +112,8 @@ pub struct TenantResponse {
     pub pcns_number: Option<String>,
     pub status: String,
     pub file_mode: String,
+    #[sqlx(flatten)]
+    pub details: PracticeDetails,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -104,12 +156,16 @@ pub struct UpdateTenantRequest {
     /// mode they were opened under.
     #[serde(default)]
     pub file_mode: Option<FileMode>,
+    /// Contact and banking details, replaced as a whole (send them all).
+    #[serde(default)]
+    pub details: Option<PracticeDetails>,
 }
 
 pub struct TenantChanges {
     pub name: Option<String>,
     pub pcns_number: Option<Option<String>>,
     pub file_mode: Option<FileMode>,
+    pub details: Option<PracticeDetails>,
 }
 
 impl UpdateTenantRequest {
@@ -123,6 +179,7 @@ impl UpdateTenantRequest {
                 Some(Some(v)) => Some(Some(validation::pcns_number(&v)?)),
             },
             file_mode: self.file_mode,
+            details: self.details.map(PracticeDetails::validate).transpose()?,
         })
     }
 }
@@ -130,6 +187,38 @@ impl UpdateTenantRequest {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    fn details(v: serde_json::Value) -> AppResult<PracticeDetails> {
+        serde_json::from_value::<PracticeDetails>(v).unwrap().validate()
+    }
+
+    #[test]
+    fn practice_details_normalise_and_blank_out() {
+        let d = details(json!({
+            "address_line1": " 1 Main Rd ", "postal_code": "4001", "phone": "031 555 1234",
+            "email": " Accounts@Clinic.co.za ", "bank_name": "First Bank", "bank_account_number": "62 1234 5678",
+            "bank_branch_code": "250-655", "city": "", "suburb": "  "
+        }))
+        .unwrap();
+        assert_eq!(d.address_line1.as_deref(), Some("1 Main Rd"));
+        assert_eq!(d.phone.as_deref(), Some("0315551234"));
+        assert_eq!(d.email.as_deref(), Some("accounts@clinic.co.za"));
+        assert_eq!(d.bank_account_number.as_deref(), Some("6212345678"));
+        assert_eq!(d.bank_branch_code.as_deref(), Some("250655"));
+        assert_eq!((d.city, d.suburb), (None, None), "blank = not set");
+        assert_eq!(details(json!({})).unwrap(), PracticeDetails::default());
+    }
+
+    #[test]
+    fn practice_details_reject_bad_bank_numbers() {
+        assert!(details(json!({"bank_branch_code": "12345"})).is_err());
+        assert!(details(json!({"bank_account_number": "12345"})).is_err());
+        assert!(details(json!({"bank_account_number": "12a456789"})).is_err());
+        assert!(details(json!({"postal_code": "400"})).is_err());
+        assert!(details(json!({"email": "nope"})).is_err());
+        let e = details(json!({"bank_branch_code": "1"})).unwrap_err().to_string();
+        assert!(e.contains("6 digits"), "{e}");
+    }
 
     use super::*;
 

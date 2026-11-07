@@ -7,7 +7,7 @@
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROBE="$ROOT/target/debug/examples/ws_probe"
 WS="${B/http:/ws:}/ws"
-j() { jq -r "$1" <<<"$BODY"; }
+j() { jq -r "$@" <<<"$BODY"; }
 sa_date() { TZ=Africa/Johannesburg date -d "$1" +%F; }
 TODAY=$(sa_date today)
 
@@ -214,6 +214,17 @@ req GET "/accounts/$PRIV/statement?as_of=$(sa_date tomorrow)" "$T"; check "futur
 echo "== statement (medical aid account)"
 req GET "/accounts/$MA/statement" "$T"
 check "practice details" "Billing Clinic 1234567" "$(j '"\(.practice.name) \(.practice.pcns_number)"')"
+check "practice details not set yet" null "$(j .practice.bank_account_number)"
+req PATCH /tenants/current "$T" '{"details":{"address_line1":"1 Main Rd","city":"Durban","postal_code":"4001","phone":"031 555 1234","email":"accounts@clinic.co.za","bank_name":"First Bank","bank_account_name":"Billing Clinic","bank_account_number":"62 1234 5678","bank_branch_code":"250655"}}'
+check "practice manager sets contact and bank details" 6212345678 "$(j .details.bank_account_number)"
+req PATCH /tenants/current "$T" '{"details":{"bank_branch_code":"25065"}}'
+check "bad branch code -> 422" 422 $CODE
+req GET "/accounts/$MA/statement" "$T"
+check "statement shows banking details" "First Bank 6212345678 250655" "$(j '.practice | "\(.bank_name) \(.bank_account_number) \(.bank_branch_code)"')"
+check "statement shows practice contact" "1 Main Rd Durban 0315551234" "$(j '.practice | "\(.address_line1) \(.city) \(.phone)"')"
+check "treating doctor with practice and council numbers" "Dr A Owner 1234567 MP0123456" "$(j --arg d "$DOC" '.providers[] | select(.id == $d) | "\(.name) \(.practice_number) \(.hpcsa_number)"')"
+check "invoice points at its doctors" "$DOC $REF" "$(j '.invoices[0] | "\(.treating_provider_id) \(.referring_provider_id)"')"
+check "assistant doctor listed" MP7777777 "$(j --arg a "$ASSIST" '.providers[] | select(.id == $a) | .hpcsa_number')"
 check "addressed to the guarantor" "Bongani Mthembu Durban 4001" "$(j '.addressee | "\(.first_name) \(.last_name) \(.city) \(.postal_code)"')"
 check "medical aid and main member" "Billing Health Core BH-100 Bongani Mthembu" "$(j '.medical_aid | "\(.scheme_name) \(.plan_name) \(.membership_number) \(.main_member_name)"')"
 check "everyone on the file" "00" "$(j '[.patients[].dependant_code] | join(",")')"
