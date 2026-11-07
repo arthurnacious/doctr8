@@ -17,6 +17,8 @@ import {
   EditPersonForm,
 } from '#/features/patients/edit/EditForms'
 import { friendlyError } from '#/features/patients/errors'
+import { InvoiceTable } from '#/features/billing/InvoiceTable'
+import { useAccountInvoices } from '#/features/billing/api'
 import {
   FILE_MODE_HELP,
   FILE_MODE_LABELS,
@@ -212,7 +214,7 @@ function PatientFilePage() {
   )
 }
 
-/** Billing is per file (account): its statement covers everyone on it. */
+/** Billing is per file (account): invoices and the statement cover everyone on it. */
 function BillingTab({ accountId }: { accountId: string }) {
   const canView = useCan('billing.view')
   if (!canView) {
@@ -222,20 +224,33 @@ function BillingTab({ accountId }: { accountId: string }) {
       </p>
     )
   }
+  return <AccountBilling accountId={accountId} />
+}
+
+function AccountBilling({ accountId }: { accountId: string }) {
+  const invoices = useAccountInvoices(accountId)
   return (
-    <div className="flex flex-col items-start gap-3 py-2">
-      <p className="text-sm text-muted">
-        The statement covers everyone on this file: invoices by visit, what the
-        medical aid and the patient still owe, and ageing.
-      </p>
-      <Link
-        to="/patients/statement/$accountId"
-        params={{ accountId }}
-        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-hover"
-      >
-        <FileText className="size-4" aria-hidden="true" />
-        Open statement
-      </Link>
+    <div className="flex flex-col gap-4 py-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          to="/patients/statement/$accountId"
+          params={{ accountId }}
+          className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-text hover:border-border-strong hover:bg-raised"
+        >
+          <FileText className="size-4" aria-hidden="true" />
+          Open statement
+        </Link>
+      </div>
+      <h3 className="text-sm font-semibold text-text">Invoices on this file</h3>
+      {invoices.isError ? (
+        <Alert>{errorMessage(invoices.error)}</Alert>
+      ) : !invoices.data ? (
+        <p className="text-sm text-muted">Loading invoices…</p>
+      ) : invoices.data.length === 0 ? (
+        <p className="text-sm text-muted">No invoices on this file yet.</p>
+      ) : (
+        <InvoiceTable items={invoices.data} caption="Invoices on this file" />
+      )}
     </div>
   )
 }

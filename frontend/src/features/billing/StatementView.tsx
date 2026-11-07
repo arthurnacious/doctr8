@@ -8,7 +8,8 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { FILE_MODE_LABELS, formatDate, fullName } from '../patients/format'
-import { formatRand, formatRandOrBlank } from './money'
+import { formatRand } from './money'
+import { TransactionsTable, num, td, th } from './tables'
 import {
   BAND_LABELS,
   formatQuantity,
@@ -23,12 +24,9 @@ import type {
   InvoiceLine,
   Statement,
   StatementInvoice,
-  StatementLine,
   StatementProvider,
 } from './types'
 import type { Visit } from './statement'
-
-const num = 'text-right tabular-nums whitespace-nowrap'
 
 export interface StatementViewProps {
   statement: Statement
@@ -507,9 +505,6 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-const th = 'px-2 py-1.5 text-left text-xs font-semibold text-subtle'
-const td = 'px-2 py-1.5 align-top'
-
 function InvoiceLines({
   lines,
   providers,
@@ -587,62 +582,6 @@ function InvoiceLines({
               </tr>
             )
           })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function TransactionsTable({
-  lines,
-  caption,
-}: {
-  lines: Array<StatementLine>
-  caption: string
-}) {
-  return (
-    <div className="statement-table overflow-x-auto">
-      <table className="w-full text-sm">
-        <caption className="sr-only">{caption}</caption>
-        <thead className="border-b border-border">
-          <tr>
-            <th scope="col" className={th}>
-              Date
-            </th>
-            <th scope="col" className={th}>
-              Transaction
-            </th>
-            <th scope="col" className={`${th} text-right`}>
-              Medical aid
-            </th>
-            <th scope="col" className={`${th} text-right`}>
-              Patient
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l) => (
-            <tr
-              key={l.transaction_id}
-              className="border-b border-border last:border-0"
-            >
-              <td className={`${td} whitespace-nowrap tabular-nums text-muted`}>
-                {formatDate(l.date)}
-              </td>
-              <td className={`${td} text-text`}>
-                {l.description}
-                {l.reversed && (
-                  <span className="ml-2 text-xs text-muted">(reversed)</span>
-                )}
-              </td>
-              <td className={`${td} ${num} text-text`}>
-                {formatRandOrBlank(l.medical_aid_cents)}
-              </td>
-              <td className={`${td} ${num} text-text`}>
-                {formatRandOrBlank(l.patient_cents)}
-              </td>
-            </tr>
-          ))}
         </tbody>
       </table>
     </div>

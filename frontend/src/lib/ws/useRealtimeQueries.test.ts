@@ -35,7 +35,11 @@ describe('realtime → query invalidation', () => {
     ]) {
       const { qc, keys } = client()
       invalidateFor(qc, { type: 'event', event, id: 'x', account_id: 'a9' })
-      expect(keys()).toEqual([['billing', 'statement', 'a9']])
+      expect(keys()).toEqual([
+        ['billing', 'statement', 'a9'],
+        ['billing', 'invoice'],
+        ['billing', 'invoices'],
+      ])
     }
     const { qc, keys } = client()
     invalidateFor(qc, { type: 'event', event: 'remittance.received', id: 'r' })
@@ -53,8 +57,8 @@ describe('realtime → query invalidation', () => {
     invalidateFor(qc, { type: 'pong' })
     invalidateFor(qc, {
       type: 'event',
-      event: 'claim.status_changed',
-      id: 'c1',
+      event: 'remittance.received',
+      id: 'r1',
     })
     expect(keys()).toEqual([])
   })

@@ -23,12 +23,17 @@ export function invalidateFor(qc: QueryClient, msg: RealtimeMessage): void {
     return
   }
   if (msg.type !== 'event') return
-  if (BILLING_EVENTS.has(msg.event) && msg.account_id) {
+  if (BILLING_EVENTS.has(msg.event)) {
     // Payments, remittances, claims, credits, liability moves and journals
-    // all change the statement.
-    void qc.invalidateQueries({
-      queryKey: ['billing', 'statement', msg.account_id],
-    })
+    // change statements, invoices and invoice lists. Only queries on screen
+    // refetch, so being broad is cheap.
+    if (msg.account_id) {
+      void qc.invalidateQueries({
+        queryKey: ['billing', 'statement', msg.account_id],
+      })
+    }
+    void qc.invalidateQueries({ queryKey: ['billing', 'invoice'] })
+    void qc.invalidateQueries({ queryKey: ['billing', 'invoices'] })
   }
   if (msg.event === 'patient_file.changed') {
     void qc.invalidateQueries({ queryKey: ['patients', 'list'] })

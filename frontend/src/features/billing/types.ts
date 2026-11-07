@@ -136,3 +136,121 @@ export interface Statement {
     total: Array<number>
   }
 }
+
+// -----------------------------------------------------------------------------
+// Invoices (backend/src/modules/billing/invoices)
+// -----------------------------------------------------------------------------
+
+export type ClaimStatus = 'submitted' | 'accepted' | 'rejected' | 'paid'
+
+/** One row of POST /invoices/search and GET /accounts/{id}/invoices. */
+export interface InvoiceListItem {
+  id: string
+  invoice_no: number
+  invoice_date: string
+  account_id: string
+  account_no: number
+  patient: {
+    patient_id: string
+    dependant_code: string
+    first_name: string
+    last_name: string
+  }
+  treating_provider_id: string
+  treating_provider: string
+  total_cents: number
+  credited_cents: number
+  medical_aid_due_cents: number
+  patient_due_cents: number
+  claim_status: ClaimStatus | null
+}
+
+export interface InvoicePage {
+  items: Array<InvoiceListItem>
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface ProviderRef {
+  id: string
+  name: string
+  practice_number: string | null
+  hpcsa_number: string | null
+}
+
+export interface Claim {
+  id: string
+  invoice_id: string
+  invoice_no: number
+  account_id: string
+  status: ClaimStatus
+  claimed_cents: number
+  submitted_date: string
+  status_reason: string | null
+  updated_at: string
+}
+
+export interface CreditNote {
+  id: string
+  credit_note_no: number
+  credit_date: string
+  reason: string
+  total_cents: number
+  lines: Array<{ invoice_line_id: string; amount_cents: number }>
+}
+
+/** GET /invoices/{id}: everything on the printed invoice. */
+export interface Invoice {
+  id: string
+  invoice_no: number
+  account_id: string
+  account_no: number
+  patient_id: string
+  patient: {
+    patient_id: string
+    dependant_code: string
+    title: string | null
+    first_name: string
+    last_name: string
+    date_of_birth: string | null
+    sex: string | null
+  }
+  medical_aid: Statement['medical_aid']
+  practice: Statement['practice']
+  transactions: Array<StatementLine>
+  invoice_date: string
+  treating_provider: ProviderRef
+  referring_provider: ProviderRef | null
+  service_centre: { id: string; kind: string; name: string }
+  authorisation_number: string | null
+  total_cents: number
+  credited_cents: number
+  medical_aid_due_cents: number
+  patient_due_cents: number
+  lines: Array<InvoiceLine>
+  credit_notes: Array<CreditNote>
+  claims: Array<Claim>
+  created_at: string
+}
+
+export interface Provider {
+  id: string
+  kind: 'practice' | 'external'
+  title: string | null
+  first_name: string | null
+  last_name: string
+  practice_number: string | null
+  hpcsa_number: string | null
+  speciality: string | null
+  is_active: boolean
+}
+
+export interface ServiceCentre {
+  id: string
+  kind: string
+  name: string
+  practice_number: string | null
+  default_place_of_service: string | null
+  is_active: boolean
+}

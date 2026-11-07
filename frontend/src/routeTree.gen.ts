@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
-import { Route as AppBillingRouteImport } from './routes/_app/billing'
+import { Route as AppBillingRouteRouteImport } from './routes/_app/billing/route'
 import { Route as AppClaimsRouteImport } from './routes/_app/claims'
 import { Route as AppDiaryRouteImport } from './routes/_app/diary'
 import { Route as AppFinanceRouteImport } from './routes/_app/finance'
@@ -21,8 +21,10 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AuthChoosePracticeRouteImport } from './routes/_auth/choose-practice'
 import { Route as AuthSignInRouteImport } from './routes/_auth/sign-in'
 import { Route as AuthTwoStepRouteImport } from './routes/_auth/two-step'
+import { Route as AppBillingIndexRouteImport } from './routes/_app/billing/index'
 import { Route as AppPatientsIndexRouteImport } from './routes/_app/patients/index'
 import { Route as AppPatientsNewRouteImport } from './routes/_app/patients/new'
+import { Route as AppBillingInvoicesInvoiceIdRouteImport } from './routes/_app/billing/invoices.$invoiceId'
 import { Route as AppPatientsFileAccountIdRouteImport } from './routes/_app/patients/file.$accountId'
 import { Route as AppPatientsStatementAccountIdRouteImport } from './routes/_app/patients/statement.$accountId'
 
@@ -39,7 +41,7 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppBillingRoute = AppBillingRouteImport.update({
+const AppBillingRouteRoute = AppBillingRouteRouteImport.update({
   id: '/billing',
   path: '/billing',
   getParentRoute: () => AppRoute,
@@ -84,6 +86,11 @@ const AuthTwoStepRoute = AuthTwoStepRouteImport.update({
   path: '/two-step',
   getParentRoute: () => AuthRoute,
 } as any)
+const AppBillingIndexRoute = AppBillingIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppBillingRouteRoute,
+} as any)
 const AppPatientsIndexRoute = AppPatientsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -94,6 +101,12 @@ const AppPatientsNewRoute = AppPatientsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => AppPatientsRouteRoute,
 } as any)
+const AppBillingInvoicesInvoiceIdRoute =
+  AppBillingInvoicesInvoiceIdRouteImport.update({
+    id: '/invoices/$invoiceId',
+    path: '/invoices/$invoiceId',
+    getParentRoute: () => AppBillingRouteRoute,
+  } as any)
 const AppPatientsFileAccountIdRoute =
   AppPatientsFileAccountIdRouteImport.update({
     id: '/file/$accountId',
@@ -109,8 +122,8 @@ const AppPatientsStatementAccountIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/billing': typeof AppBillingRouteRouteWithChildren
   '/patients': typeof AppPatientsRouteRouteWithChildren
-  '/billing': typeof AppBillingRoute
   '/claims': typeof AppClaimsRoute
   '/diary': typeof AppDiaryRoute
   '/finance': typeof AppFinanceRoute
@@ -119,13 +132,14 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof AuthSignInRoute
   '/two-step': typeof AuthTwoStepRoute
   '/patients/new': typeof AppPatientsNewRoute
+  '/billing/': typeof AppBillingIndexRoute
   '/patients/': typeof AppPatientsIndexRoute
+  '/billing/invoices/$invoiceId': typeof AppBillingInvoicesInvoiceIdRoute
   '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
   '/patients/statement/$accountId': typeof AppPatientsStatementAccountIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
-  '/billing': typeof AppBillingRoute
   '/claims': typeof AppClaimsRoute
   '/diary': typeof AppDiaryRoute
   '/finance': typeof AppFinanceRoute
@@ -134,7 +148,9 @@ export interface FileRoutesByTo {
   '/sign-in': typeof AuthSignInRoute
   '/two-step': typeof AuthTwoStepRoute
   '/patients/new': typeof AppPatientsNewRoute
+  '/billing': typeof AppBillingIndexRoute
   '/patients': typeof AppPatientsIndexRoute
+  '/billing/invoices/$invoiceId': typeof AppBillingInvoicesInvoiceIdRoute
   '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
   '/patients/statement/$accountId': typeof AppPatientsStatementAccountIdRoute
 }
@@ -142,8 +158,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/_app/billing': typeof AppBillingRouteRouteWithChildren
   '/_app/patients': typeof AppPatientsRouteRouteWithChildren
-  '/_app/billing': typeof AppBillingRoute
   '/_app/claims': typeof AppClaimsRoute
   '/_app/diary': typeof AppDiaryRoute
   '/_app/finance': typeof AppFinanceRoute
@@ -153,7 +169,9 @@ export interface FileRoutesById {
   '/_auth/two-step': typeof AuthTwoStepRoute
   '/_app/': typeof AppIndexRoute
   '/_app/patients/new': typeof AppPatientsNewRoute
+  '/_app/billing/': typeof AppBillingIndexRoute
   '/_app/patients/': typeof AppPatientsIndexRoute
+  '/_app/billing/invoices/$invoiceId': typeof AppBillingInvoicesInvoiceIdRoute
   '/_app/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
   '/_app/patients/statement/$accountId': typeof AppPatientsStatementAccountIdRoute
 }
@@ -161,8 +179,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/patients'
     | '/billing'
+    | '/patients'
     | '/claims'
     | '/diary'
     | '/finance'
@@ -171,13 +189,14 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/two-step'
     | '/patients/new'
+    | '/billing/'
     | '/patients/'
+    | '/billing/invoices/$invoiceId'
     | '/patients/file/$accountId'
     | '/patients/statement/$accountId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/billing'
     | '/claims'
     | '/diary'
     | '/finance'
@@ -186,15 +205,17 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/two-step'
     | '/patients/new'
+    | '/billing'
     | '/patients'
+    | '/billing/invoices/$invoiceId'
     | '/patients/file/$accountId'
     | '/patients/statement/$accountId'
   id:
     | '__root__'
     | '/_app'
     | '/_auth'
-    | '/_app/patients'
     | '/_app/billing'
+    | '/_app/patients'
     | '/_app/claims'
     | '/_app/diary'
     | '/_app/finance'
@@ -204,7 +225,9 @@ export interface FileRouteTypes {
     | '/_auth/two-step'
     | '/_app/'
     | '/_app/patients/new'
+    | '/_app/billing/'
     | '/_app/patients/'
+    | '/_app/billing/invoices/$invoiceId'
     | '/_app/patients/file/$accountId'
     | '/_app/patients/statement/$accountId'
   fileRoutesById: FileRoutesById
@@ -241,7 +264,7 @@ declare module '@tanstack/react-router' {
       id: '/_app/billing'
       path: '/billing'
       fullPath: '/billing'
-      preLoaderRoute: typeof AppBillingRouteImport
+      preLoaderRoute: typeof AppBillingRouteRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/claims': {
@@ -300,6 +323,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthTwoStepRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_app/billing/': {
+      id: '/_app/billing/'
+      path: '/'
+      fullPath: '/billing/'
+      preLoaderRoute: typeof AppBillingIndexRouteImport
+      parentRoute: typeof AppBillingRouteRoute
+    }
     '/_app/patients/': {
       id: '/_app/patients/'
       path: '/'
@@ -313,6 +343,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/patients/new'
       preLoaderRoute: typeof AppPatientsNewRouteImport
       parentRoute: typeof AppPatientsRouteRoute
+    }
+    '/_app/billing/invoices/$invoiceId': {
+      id: '/_app/billing/invoices/$invoiceId'
+      path: '/invoices/$invoiceId'
+      fullPath: '/billing/invoices/$invoiceId'
+      preLoaderRoute: typeof AppBillingInvoicesInvoiceIdRouteImport
+      parentRoute: typeof AppBillingRouteRoute
     }
     '/_app/patients/file/$accountId': {
       id: '/_app/patients/file/$accountId'
@@ -330,6 +367,20 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AppBillingRouteRouteChildren {
+  AppBillingIndexRoute: typeof AppBillingIndexRoute
+  AppBillingInvoicesInvoiceIdRoute: typeof AppBillingInvoicesInvoiceIdRoute
+}
+
+const AppBillingRouteRouteChildren: AppBillingRouteRouteChildren = {
+  AppBillingIndexRoute: AppBillingIndexRoute,
+  AppBillingInvoicesInvoiceIdRoute: AppBillingInvoicesInvoiceIdRoute,
+}
+
+const AppBillingRouteRouteWithChildren = AppBillingRouteRoute._addFileChildren(
+  AppBillingRouteRouteChildren,
+)
 
 interface AppPatientsRouteRouteChildren {
   AppPatientsNewRoute: typeof AppPatientsNewRoute
@@ -349,8 +400,8 @@ const AppPatientsRouteRouteWithChildren =
   AppPatientsRouteRoute._addFileChildren(AppPatientsRouteRouteChildren)
 
 interface AppRouteChildren {
+  AppBillingRouteRoute: typeof AppBillingRouteRouteWithChildren
   AppPatientsRouteRoute: typeof AppPatientsRouteRouteWithChildren
-  AppBillingRoute: typeof AppBillingRoute
   AppClaimsRoute: typeof AppClaimsRoute
   AppDiaryRoute: typeof AppDiaryRoute
   AppFinanceRoute: typeof AppFinanceRoute
@@ -359,8 +410,8 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppBillingRouteRoute: AppBillingRouteRouteWithChildren,
   AppPatientsRouteRoute: AppPatientsRouteRouteWithChildren,
-  AppBillingRoute: AppBillingRoute,
   AppClaimsRoute: AppClaimsRoute,
   AppDiaryRoute: AppDiaryRoute,
   AppFinanceRoute: AppFinanceRoute,
