@@ -134,6 +134,13 @@ pub fn mask_id_number(id_type: Option<&str>, number: &str) -> String {
         .collect()
 }
 
+/// GET /patient-files/settings
+#[derive(Serialize)]
+pub struct FileSettings {
+    /// The mode new files are opened under.
+    pub file_mode: String,
+}
+
 #[derive(Deserialize)]
 pub struct SetStatusRequest {
     pub status: PatientStatus,

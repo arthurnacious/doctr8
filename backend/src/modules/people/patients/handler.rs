@@ -6,7 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use super::{
-    dto::{CreatePatientFileRequest, PatientPage, PatientResponse, PatientSearchRequest, SetStatusRequest, UpdatePatientRequest},
+    dto::{CreatePatientFileRequest, FileSettings, PatientPage, PatientResponse, PatientSearchRequest, SetStatusRequest, UpdatePatientRequest},
     service::PatientsService,
 };
 use crate::{
@@ -64,4 +64,12 @@ pub async fn get_file(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<AccountResponse>> {
     Ok(Json(svc.get_file(&auth, id).await?))
+}
+
+/// What the new-file flow needs to know about the practice.
+pub async fn settings(
+    State(svc): State<PatientsService>,
+    auth: Require<perm::PatientsView>,
+) -> AppResult<Json<FileSettings>> {
+    Ok(Json(svc.settings(&auth).await?))
 }

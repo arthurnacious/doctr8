@@ -16,6 +16,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/patient-files", post(handler::create_file))
+        .route("/patient-files/settings", get(handler::settings))
         .route("/patient-files/{id}", get(handler::get_file))
         .route("/patients/search", post(handler::search))
         .route("/patients/{id}", get(handler::get).patch(handler::update))

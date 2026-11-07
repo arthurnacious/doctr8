@@ -133,7 +133,10 @@ impl PersonInput {
                 let (n, info) = validation::sa_id_number(&n, today)?;
                 match date_of_birth {
                     None => date_of_birth = Some(info.date_of_birth),
-                    Some(d) if d != info.date_of_birth => {
+                    // The ID only holds a two-digit year, so the century we
+                    // guess can be wrong (e.g. someone born in 1925). Accept
+                    // a date of birth whose YYMMDD matches the ID.
+                    Some(d) if d.format("%y%m%d").to_string() != n[..6] => {
                         return Err(AppError::validation(
                             "date_of_birth does not match the SA ID number",
                         ));
@@ -343,6 +346,37 @@ mod tests {
         p.id_number = Some("8001015009087".into());
         p.date_of_birth = NaiveDate::from_ymd_opt(1980, 1, 2);
         assert!(p.validate(today()).is_err());
+    }
+
+    #[test]
+    fn dob_can_correct_the_century_of_an_sa_id() {
+        // 2501015800082: the ID alone reads as 2025-01-01.
+        let id = {
+            let mut digits: Vec<u32> = "250101580008".chars().map(|c| c.to_digit(10).unwrap()).collect();
+            let check = (0..10)
+                .find(|c| {
+                    let mut d = digits.clone();
+                    d.push(*c);
+                    let sum: u32 = d.iter().rev().enumerate().map(|(i, &x)| if i % 2 == 1 { let y = x * 2; if y > 9 { y - 9 } else { y } } else { x }).sum();
+                    sum.is_multiple_of(10)
+                })
+                .unwrap();
+            digits.push(check);
+            digits.iter().map(|d| char::from_digit(*d, 10).unwrap()).collect::<String>()
+        };
+        let mut guessed = input();
+        guessed.id_number = Some(id.clone());
+        assert_eq!(guessed.validate(today()).unwrap().date_of_birth, NaiveDate::from_ymd_opt(2025, 1, 1));
+
+        let mut corrected = input();
+        corrected.id_number = Some(id.clone());
+        corrected.date_of_birth = NaiveDate::from_ymd_opt(1925, 1, 1);
+        assert_eq!(corrected.validate(today()).unwrap().date_of_birth, NaiveDate::from_ymd_opt(1925, 1, 1));
+
+        let mut wrong_day = input();
+        wrong_day.id_number = Some(id);
+        wrong_day.date_of_birth = NaiveDate::from_ymd_opt(1925, 1, 2);
+        assert!(wrong_day.validate(today()).is_err());
     }
 
     #[test]

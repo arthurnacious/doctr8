@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use super::{
     dto::{
-        CreatePatientFileRequest, MainMemberRef, MedicalAidSource, Party, PatientListItem, PatientPage,
+        CreatePatientFileRequest, FileSettings, MainMemberRef, MedicalAidSource, Party, PatientListItem, PatientPage,
         PatientResponse, PatientSearchRequest, PersonSource, SetStatusRequest, UpdatePatientRequest,
         mask_id_number,
     },
@@ -19,7 +19,7 @@ use crate::{
         ws::EventBus,
     },
     modules::{
-        access::tenants::dto::FileMode,
+        access::tenants::{self, dto::FileMode},
         people::{
             accounts::{
                 self,
@@ -96,6 +96,15 @@ impl PatientsService {
         accounts::service::announce_files(&mut tx, &self.bus, t, [patient.account_id]).await?;
         tx.commit().await?;
         Ok(patient)
+    }
+
+    pub async fn settings(&self, actor: &TenantUser) -> AppResult<FileSettings> {
+        let mut tx = db::begin(&self.pool, actor.scope()).await?;
+        let practice = tenants::repository::find(&mut tx, actor.tenant_id)
+            .await?
+            .ok_or(AppError::NotFound("practice"))?;
+        tx.commit().await?;
+        Ok(FileSettings { file_mode: practice.file_mode })
     }
 
     pub async fn get_file(&self, actor: &TenantUser, account_id: Uuid) -> AppResult<AccountResponse> {

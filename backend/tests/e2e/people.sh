@@ -188,6 +188,7 @@ req POST /patients/search "$T" '{"query":"nkosi","status":"inactive"}'; check "i
 req POST /patients/search "$T" '{"query":"nkosi","status":"all"}'; check "all filter" 3 "$(j .total)"
 req GET /accounts/$ACC_FAM "$T"; check "file view shows each patient's status" active "$(j '.patients[0].status')"
 req PUT /patients/$LWAZI/status "$T" '{"status":"active"}'; check "reactivated" active "$(j .status)"
+req GET /patient-files/settings "$T"; check "file mode for the new-file flow" debtor_per_visit "$(j .file_mode)"
 req GET /patient-files/$ACC_FAM "$T"; check "patient staff can open a file" "3 FAM-1" "$(j '"\(.patients | length) \(.medical_aid.membership_number)"')"
 req POST /patients/search "$T" '{}'; check "empty query lists everyone, paged" 25 "$(j .page_size)"
 
