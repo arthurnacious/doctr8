@@ -22,6 +22,7 @@ npm run dev        # http://localhost:5173
 | `npm run lint`      | ESLint                                               |
 | `npm run typecheck` | `tsc --noEmit`                                       |
 | `npm run test`      | Vitest unit tests                                    |
+| `npm run test:e2e`  | Playwright against the real API (see below)          |
 | `npm run check`     | Prettier check + ESLint + typecheck (run before PRs) |
 | `npm run format`    | Prettier write + ESLint fix                          |
 
@@ -33,6 +34,14 @@ the refresh-token cookie is first-party and the API needs no CORS. The API
 scopes that cookie to `Path=/auth`; the proxy rewrites it to `/api/auth` so the
 browser sends it back. Set `DOCTR8_API_URL` to point the proxy elsewhere.
 Production needs the same arrangement from its reverse proxy.
+
+### Browser tests
+
+`npm run test:e2e` runs `e2e/run.sh`. It recreates the API's test database
+(`TEST_DATABASE_URL` from `../backend/.env`; the name must end in `_test`),
+starts the API on :3100 and the dev server on :5174, seeds users, and runs
+the Playwright specs in Chromium. It uses the system `chromium` if one is
+installed, otherwise run `npx playwright install chromium` once.
 
 ### Development stubs
 
@@ -66,6 +75,8 @@ src/
   integrations/              TanStack Query provider and devtools
   router.tsx                 router + query client
   styles.css                 design tokens (CSS variables) + Tailwind
+  test/                      unit-test fixtures
+e2e/                         Playwright specs + run.sh (real API, test database)
 ```
 
 Routes beginning with `_` are layouts that don't add to the URL. Pages own

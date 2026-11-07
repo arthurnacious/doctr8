@@ -18,7 +18,9 @@ import { Route as AppDiaryRouteImport } from './routes/_app/diary'
 import { Route as AppFinanceRouteImport } from './routes/_app/finance'
 import { Route as AppPatientsRouteImport } from './routes/_app/patients'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AuthChoosePracticeRouteImport } from './routes/_auth/choose-practice'
 import { Route as AuthSignInRouteImport } from './routes/_auth/sign-in'
+import { Route as AuthTwoStepRouteImport } from './routes/_auth/two-step'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -63,9 +65,19 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AuthChoosePracticeRoute = AuthChoosePracticeRouteImport.update({
+  id: '/choose-practice',
+  path: '/choose-practice',
+  getParentRoute: () => AuthRoute,
+} as any)
 const AuthSignInRoute = AuthSignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthTwoStepRoute = AuthTwoStepRouteImport.update({
+  id: '/two-step',
+  path: '/two-step',
   getParentRoute: () => AuthRoute,
 } as any)
 
@@ -77,7 +89,9 @@ export interface FileRoutesByFullPath {
   '/finance': typeof AppFinanceRoute
   '/patients': typeof AppPatientsRoute
   '/settings': typeof AppSettingsRoute
+  '/choose-practice': typeof AuthChoosePracticeRoute
   '/sign-in': typeof AuthSignInRoute
+  '/two-step': typeof AuthTwoStepRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
@@ -87,7 +101,9 @@ export interface FileRoutesByTo {
   '/finance': typeof AppFinanceRoute
   '/patients': typeof AppPatientsRoute
   '/settings': typeof AppSettingsRoute
+  '/choose-practice': typeof AuthChoosePracticeRoute
   '/sign-in': typeof AuthSignInRoute
+  '/two-step': typeof AuthTwoStepRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -99,7 +115,9 @@ export interface FileRoutesById {
   '/_app/finance': typeof AppFinanceRoute
   '/_app/patients': typeof AppPatientsRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_auth/choose-practice': typeof AuthChoosePracticeRoute
   '/_auth/sign-in': typeof AuthSignInRoute
+  '/_auth/two-step': typeof AuthTwoStepRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
@@ -112,7 +130,9 @@ export interface FileRouteTypes {
     | '/finance'
     | '/patients'
     | '/settings'
+    | '/choose-practice'
     | '/sign-in'
+    | '/two-step'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,7 +142,9 @@ export interface FileRouteTypes {
     | '/finance'
     | '/patients'
     | '/settings'
+    | '/choose-practice'
     | '/sign-in'
+    | '/two-step'
   id:
     | '__root__'
     | '/_app'
@@ -133,7 +155,9 @@ export interface FileRouteTypes {
     | '/_app/finance'
     | '/_app/patients'
     | '/_app/settings'
+    | '/_auth/choose-practice'
     | '/_auth/sign-in'
+    | '/_auth/two-step'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
@@ -207,11 +231,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_auth/choose-practice': {
+      id: '/_auth/choose-practice'
+      path: '/choose-practice'
+      fullPath: '/choose-practice'
+      preLoaderRoute: typeof AuthChoosePracticeRouteImport
+      parentRoute: typeof AuthRoute
+    }
     '/_auth/sign-in': {
       id: '/_auth/sign-in'
       path: '/sign-in'
       fullPath: '/sign-in'
       preLoaderRoute: typeof AuthSignInRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/two-step': {
+      id: '/_auth/two-step'
+      path: '/two-step'
+      fullPath: '/two-step'
+      preLoaderRoute: typeof AuthTwoStepRouteImport
       parentRoute: typeof AuthRoute
     }
   }
@@ -240,11 +278,15 @@ const AppRouteChildren: AppRouteChildren = {
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 interface AuthRouteChildren {
+  AuthChoosePracticeRoute: typeof AuthChoosePracticeRoute
   AuthSignInRoute: typeof AuthSignInRoute
+  AuthTwoStepRoute: typeof AuthTwoStepRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
+  AuthChoosePracticeRoute: AuthChoosePracticeRoute,
   AuthSignInRoute: AuthSignInRoute,
+  AuthTwoStepRoute: AuthTwoStepRoute,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)

@@ -1,8 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { EmptyState } from '#/components/layout/EmptyState'
+import { requirePermission } from '#/lib/auth/guards'
+import { navRule } from '#/lib/nav'
 
-export const Route = createFileRoute('/_app/diary')({ component: DiaryPage })
+export const Route = createFileRoute('/_app/diary')({
+  beforeLoad: () => requirePermission(navRule('/diary')),
+  component: DiaryPage,
+})
 
 function DiaryPage() {
   return (

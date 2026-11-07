@@ -48,7 +48,10 @@ export interface SignedIn {
 
 export type SessionState =
   /** Not yet known: the app hasn't tried the refresh cookie. */
-  { status: 'unknown' } | { status: 'signed_out' } | SignedIn
+  | { status: 'unknown' }
+  /** `expired`: the session ended on its own (refresh failed). */
+  | { status: 'signed_out'; reason?: 'signed_out' | 'expired' }
+  | SignedIn
 
 type Listener = () => void
 
