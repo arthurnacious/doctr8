@@ -109,16 +109,12 @@ impl UsersService {
             .map(|r| r.id)
             .collect();
 
-        let added: Vec<Uuid> = desired.difference(&current).copied().collect();
-        let removed: Vec<Uuid> = current.difference(&desired).copied().collect();
+        let (added, removed) = role_changes(&current, &desired);
 
         if !added.is_empty() || !removed.is_empty() {
             let changed: Vec<Uuid> = added.iter().chain(&removed).copied().collect();
             let grants = roles::repository::permissions_for_roles(&mut tx, tenant_id, &changed).await?;
-            let exceeds_actor = grants
-                .iter()
-                .any(|g| Permission::from_key(&g.permission_key).is_none_or(|p| !actor.has(p)));
-            if exceeds_actor {
+            if grants_exceed(actor, grants.iter().map(|g| g.permission_key.as_str())) {
                 return Err(AppError::Forbidden(
                     "You can only assign or remove roles whose permissions you hold yourself",
                 ));
@@ -147,5 +143,65 @@ impl UsersService {
             .collect();
         tx.commit().await?;
         Ok(roles)
+    }
+}
+
+/// (added, removed) when moving from `current` to `desired`.
+fn role_changes(current: &BTreeSet<Uuid>, desired: &BTreeSet<Uuid>) -> (Vec<Uuid>, Vec<Uuid>) {
+    (
+        desired.difference(current).copied().collect(),
+        current.difference(desired).copied().collect(),
+    )
+}
+
+/// True if any of these permission keys is one the actor doesn't hold.
+/// Unknown keys count as exceeding (fail closed).
+fn grants_exceed<'a>(actor: &TenantUser, keys: impl IntoIterator<Item = &'a str>) -> bool {
+    keys.into_iter()
+        .any(|k| Permission::from_key(k).is_none_or(|p| !actor.has(p)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::test_support::tenant_user;
+
+    fn ids(ns: &[u128]) -> BTreeSet<Uuid> {
+        ns.iter().map(|n| Uuid::from_u128(*n)).collect()
+    }
+
+    #[test]
+    fn role_changes_computes_both_directions() {
+        let (added, removed) = role_changes(&ids(&[1, 2]), &ids(&[2, 3]));
+        assert_eq!(added, vec![Uuid::from_u128(3)]);
+        assert_eq!(removed, vec![Uuid::from_u128(1)]);
+    }
+
+    #[test]
+    fn role_changes_noop_and_clear() {
+        let (a, r) = role_changes(&ids(&[1, 2]), &ids(&[1, 2]));
+        assert!(a.is_empty() && r.is_empty());
+        let (a, r) = role_changes(&ids(&[1, 2]), &ids(&[]));
+        assert!(a.is_empty());
+        assert_eq!(r.len(), 2);
+    }
+
+    #[test]
+    fn grants_within_actor_permissions_are_allowed() {
+        let actor = tenant_user(&[Permission::MembersView, Permission::RolesAssign]);
+        assert!(!grants_exceed(&actor, ["members.view", "roles.assign"]));
+        assert!(!grants_exceed(&actor, []));
+    }
+
+    #[test]
+    fn grants_beyond_actor_permissions_are_escalation() {
+        let actor = tenant_user(&[Permission::MembersView, Permission::RolesAssign]);
+        assert!(grants_exceed(&actor, ["members.view", "roles.manage"]));
+    }
+
+    #[test]
+    fn unknown_permission_keys_fail_closed() {
+        let actor = tenant_user(Permission::ALL);
+        assert!(grants_exceed(&actor, ["patients.delete_everything"]));
     }
 }

@@ -49,3 +49,21 @@ pub async fn set_scope(conn: &mut PgConnection, scope: Scope) -> Result<(), sqlx
         .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scopes() {
+        let (u, t) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let none = Scope::NONE;
+        assert!(none.user_id.is_none() && none.tenant_id.is_none());
+        let user = Scope::user(u);
+        assert_eq!((user.user_id, user.tenant_id), (Some(u), None));
+        let tenant = Scope::tenant(u, t);
+        assert_eq!((tenant.user_id, tenant.tenant_id), (Some(u), Some(t)));
+        let default = Scope::default();
+        assert!(default.user_id.is_none() && default.tenant_id.is_none(), "default must fail closed");
+    }
+}

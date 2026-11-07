@@ -143,6 +143,68 @@ mod tests {
         }
     }
 
+    /// Every key inserted into `permissions` by any migration. Lets the
+    /// enum/database drift check run without a database.
+    fn keys_seeded_by_migrations() -> BTreeSet<String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+        files.sort();
+        let mut keys = BTreeSet::new();
+        for file in files {
+            let sql = std::fs::read_to_string(&file).unwrap();
+            for (_, rest) in sql.match_indices("INSERT INTO permissions").map(|(i, _)| sql.split_at(i)) {
+                let stmt = &rest[..rest.find(';').unwrap()];
+                for chunk in stmt.split("('").skip(1) {
+                    keys.insert(chunk[..chunk.find('\'').unwrap()].to_owned());
+                }
+            }
+        }
+        keys
+    }
+
+    #[test]
+    fn enum_matches_permissions_seeded_by_migrations() {
+        let in_code: BTreeSet<String> = Permission::ALL.iter().map(|p| p.key().to_owned()).collect();
+        assert_eq!(in_code, keys_seeded_by_migrations(), "add a migration (and grant it to Owner roles)");
+    }
+
+    #[test]
+    fn descriptions_are_present() {
+        for p in Permission::ALL {
+            assert!(!p.description().is_empty(), "{}", p.key());
+        }
+    }
+
+    #[test]
+    fn markers_carry_their_permission() {
+        assert_eq!(<perm::RolesManage as PermissionMarker>::PERMISSION, Permission::RolesManage);
+        assert_eq!(<perm::PatientsView as PermissionMarker>::PERMISSION, Permission::PatientsView);
+    }
+
+    #[test]
+    fn serializes_as_key() {
+        assert_eq!(serde_json::to_string(&Permission::AccountsManage).unwrap(), "\"accounts.manage\"");
+    }
+
+    #[test]
+    fn parse_keys_dedupes_and_sorts() {
+        let parsed = parse_keys(&["roles.view".into(), "practice.view".into(), "roles.view".into()]).unwrap();
+        assert_eq!(parsed.into_iter().collect::<Vec<_>>(), vec![Permission::PracticeView, Permission::RolesView]);
+        assert!(parse_keys(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_keys_lists_all_unknown_keys() {
+        let err = parse_keys(&["a.b".into(), "roles.view".into(), "c.d".into()]).unwrap_err().to_string();
+        assert!(err.contains("a.b") && err.contains("c.d") && !err.contains("roles.view"));
+    }
+
+    #[test]
+    fn from_db_keys_drops_unknown_and_dedupes() {
+        let perms = from_db_keys(["roles.view", "gone.away", "roles.view", "members.view"]);
+        assert_eq!(perms, vec![Permission::MembersView, Permission::RolesView]);
+    }
+
     #[test]
     fn parse_keys_rejects_unknown() {
         let err = parse_keys(&["roles.view".into(), "nope.nope".into()]).unwrap_err();

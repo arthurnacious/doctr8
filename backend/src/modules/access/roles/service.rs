@@ -195,3 +195,43 @@ fn to_response(row: RoleRow, permissions: Vec<Permission>) -> RoleResponse {
         updated_at: row.updated_at,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::test_support::tenant_user;
+
+    #[test]
+    fn actor_may_grant_what_they_hold() {
+        let actor = tenant_user(&[Permission::RolesManage, Permission::MembersView]);
+        assert!(ensure_actor_holds(&actor, [Permission::MembersView].iter()).is_ok());
+        assert!(ensure_actor_holds(&actor, std::iter::empty()).is_ok());
+    }
+
+    #[test]
+    fn actor_may_not_grant_what_they_lack() {
+        let actor = tenant_user(&[Permission::RolesManage]);
+        let err = ensure_actor_holds(&actor, [Permission::RolesManage, Permission::PatientsView].iter()).unwrap_err();
+        assert!(matches!(err, AppError::Forbidden(_)));
+    }
+
+    #[test]
+    fn owner_can_grant_anything() {
+        let owner = tenant_user(Permission::ALL);
+        assert!(ensure_actor_holds(&owner, Permission::ALL.iter()).is_ok());
+    }
+
+    #[test]
+    fn keys_are_db_strings() {
+        assert_eq!(keys([Permission::RolesView, Permission::PatientsManage].iter()), vec!["roles.view", "patients.manage"]);
+    }
+
+    #[tokio::test]
+    async fn catalogue_lists_every_permission() {
+        // RolesService::catalogue needs no database; build one on a lazy pool.
+        let pool = sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://x@127.0.0.1:1/x").unwrap();
+        let catalogue = RolesService::new(pool).catalogue();
+        assert_eq!(catalogue.len(), Permission::ALL.len());
+        assert!(catalogue.iter().all(|p| !p.description.is_empty()));
+    }
+}

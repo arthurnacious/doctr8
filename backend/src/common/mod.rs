@@ -8,3 +8,6 @@ pub mod jwt;
 pub mod password;
 pub mod permission;
 pub mod validation;
+
+#[cfg(test)]
+pub mod test_support;

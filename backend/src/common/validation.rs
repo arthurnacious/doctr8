@@ -30,7 +30,12 @@ pub fn email(value: &str) -> AppResult<String> {
     let v = value.trim().to_lowercase();
     let valid = v.len() <= 254
         && v.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
+            !local.is_empty()
+                && !domain.contains('@')
+                && !domain.contains("..")
+                && domain.contains('.')
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
         })
         && !v.chars().any(char::is_whitespace);
     if !valid {
@@ -228,5 +233,157 @@ mod tests {
         assert_eq!(email(" Thabo@Example.co.za ").unwrap(), "thabo@example.co.za");
         assert!(email("no-at-sign").is_err());
         assert!(email("a@b").is_err());
+    }
+}
+
+#[cfg(test)]
+mod edge_cases {
+    use serde::Deserialize;
+
+    use super::*;
+    use crate::common::test_support::{date, today};
+
+    #[test]
+    fn text_trims_requires_and_counts_characters_not_bytes() {
+        assert_eq!(text("name", "  Thabo  ", 10).unwrap(), "Thabo");
+        assert!(text("name", "   ", 10).unwrap_err().to_string().contains("name is required"));
+        // 5 multi-byte characters fit a 5-character limit.
+        assert_eq!(text("name", "Ngūgĩ", 5).unwrap(), "Ngūgĩ");
+        assert!(text("name", "abcdef", 5).unwrap_err().to_string().contains("at most 5"));
+    }
+
+    #[test]
+    fn optional_text_blank_is_none() {
+        assert_eq!(optional_text("x", None, 5).unwrap(), None);
+        assert_eq!(optional_text("x", Some("   "), 5).unwrap(), None);
+        assert_eq!(optional_text("x", Some(" a "), 5).unwrap(), Some("a".into()));
+        assert!(optional_text("x", Some("toolong"), 5).is_err());
+    }
+
+    #[test]
+    fn email_rules() {
+        for bad in ["", "@x.co", "a@", "a@.co", "a@co.", "a b@x.co", "a@x", "a@@x.co", "a@b@x.co", "a@x..co"] {
+            assert!(email(bad).is_err(), "{bad:?}");
+        }
+        assert!(email(&format!("{}@x.co", "a".repeat(250))).is_err(), "over 254 chars");
+        assert_eq!(email("A.B+tag@Sub.Example.CO.ZA").unwrap(), "a.b+tag@sub.example.co.za");
+    }
+
+    #[test]
+    fn slug_length_bounds() {
+        assert!(slug("abc").is_ok());
+        assert!(slug(&"a".repeat(63)).is_ok());
+        assert!(slug(&"a".repeat(64)).is_err());
+        assert!(slug("ab-").is_err());
+        assert!(slug("a b c").is_err());
+        assert_eq!(slug("dr-1-smith").unwrap(), "dr-1-smith");
+    }
+
+    #[test]
+    fn sa_id_rejects_bad_citizenship_digit() {
+        // Valid date and Luhn digit but citizenship digit 3.
+        let mut digits: Vec<u32> = "800101500930".chars().map(|c| c.to_digit(10).unwrap()).collect();
+        let check = (0..10).find(|c| { let mut d = digits.clone(); d.push(*c); luhn_valid(&d) }).unwrap();
+        digits.push(check);
+        let id: String = digits.iter().map(|d| char::from_digit(*d, 10).unwrap()).collect();
+        assert!(sa_id_number(&id, today()).err().unwrap().to_string().contains("citizenship"));
+    }
+
+    #[test]
+    fn sa_id_leap_days() {
+        let with_check = |prefix: &str| {
+            let d: Vec<u32> = prefix.chars().map(|c| c.to_digit(10).unwrap()).collect();
+            let c = (0..10).find(|c| { let mut x = d.clone(); x.push(*c); luhn_valid(&x) }).unwrap();
+            format!("{prefix}{c}")
+        };
+        // 2000-02-29 existed; 2001-02-29 / 1901-02-29 did not.
+        assert_eq!(sa_id_number(&with_check("000229500008"), today()).unwrap().1.date_of_birth, date(2000, 2, 29));
+        assert!(sa_id_number(&with_check("010229500008"), today()).is_err());
+    }
+
+    #[test]
+    fn sa_id_born_later_this_year_belongs_to_last_century() {
+        // Today is 2026-11-07: an ID starting 261225 must be 1926-12-25.
+        let d: Vec<u32> = "261225500008".chars().map(|c| c.to_digit(10).unwrap()).collect();
+        let c = (0..10).find(|c| { let mut x = d.clone(); x.push(*c); luhn_valid(&x) }).unwrap();
+        let id = format!("261225500008{c}");
+        assert_eq!(sa_id_number(&id, today()).unwrap().1.date_of_birth, date(1926, 12, 25));
+    }
+
+    #[test]
+    fn sa_id_messages_never_echo_the_number() {
+        for bad in ["9002150123089", "9013150123088", "12345", "90021501230880"] {
+            let msg = sa_id_number(bad, today()).err().unwrap().to_string();
+            assert!(!msg.contains(bad) && !msg.contains("900215"), "{msg}");
+        }
+    }
+
+    #[test]
+    fn luhn_detects_single_digit_errors() {
+        let good: Vec<u32> = "8001015009087".chars().map(|c| c.to_digit(10).unwrap()).collect();
+        for i in 0..good.len() {
+            let mut bad = good.clone();
+            bad[i] = (bad[i] + 1) % 10;
+            assert!(!luhn_valid(&bad), "change at position {i} not detected");
+        }
+    }
+
+    #[test]
+    fn phone_rules() {
+        assert_eq!(phone("p", "0825551234").unwrap(), "0825551234");
+        assert_eq!(phone("p", "  +27 82 555 1234 ").unwrap(), "+27825551234");
+        assert!(phone("p", "123456").is_err(), "too short");
+        assert!(phone("p", "1234567890123456").is_err(), "too long");
+        assert!(phone("p", "082.555.1234").is_err());
+        assert!(!phone("mobile", "082 555 12ab").unwrap_err().to_string().contains("12ab"));
+    }
+
+    #[test]
+    fn postal_codes() {
+        assert_eq!(postal_code(" 0181 ").unwrap(), "0181");
+        for bad in ["181", "01811", "O181", ""] {
+            assert!(postal_code(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn dependant_codes() {
+        for ok in ["00", "01", "99", " 05 "] {
+            assert!(dependant_code(ok).is_ok(), "{ok:?}");
+        }
+        for bad in ["0", "000", "a1", "-1", ""] {
+            assert!(dependant_code(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn membership_numbers() {
+        assert_eq!(membership_number("abc/12-3").unwrap(), "ABC/12-3");
+        assert!(membership_number(&"1".repeat(30)).is_ok());
+        assert!(membership_number(&"1".repeat(31)).is_err());
+        assert!(membership_number("   ").is_err());
+        assert!(membership_number("12#3").is_err());
+    }
+
+    #[test]
+    fn pcns_rejects_wrong_lengths() {
+        assert!(pcns_number("12345678").is_err());
+        assert!(pcns_number("").is_err());
+    }
+
+    #[derive(Deserialize)]
+    struct Patch {
+        #[serde(default, deserialize_with = "double_option")]
+        field: Option<Option<String>>,
+    }
+
+    #[test]
+    fn double_option_distinguishes_absent_null_and_value() {
+        let p: Patch = serde_json::from_str("{}").unwrap();
+        assert_eq!(p.field, None, "absent = leave unchanged");
+        let p: Patch = serde_json::from_str(r#"{"field":null}"#).unwrap();
+        assert_eq!(p.field, Some(None), "null = clear");
+        let p: Patch = serde_json::from_str(r#"{"field":"x"}"#).unwrap();
+        assert_eq!(p.field, Some(Some("x".into())));
     }
 }

@@ -72,12 +72,51 @@ fn refresh_token(jar: &CookieJar) -> AppResult<String> {
 }
 
 fn respond(jar: CookieJar, config: &Config, tokens: SessionTokens) -> (CookieJar, Json<AuthResponse>) {
-    let cookie = Cookie::build((REFRESH_COOKIE, tokens.refresh_token))
+    let cookie = refresh_cookie(config, tokens.refresh_token, tokens.refresh_max_age_secs);
+    (jar.add(cookie), Json(tokens.body))
+}
+
+/// HttpOnly (no JS access), SameSite=Strict (no cross-site sends), and only
+/// sent to /auth so ordinary API calls never carry it.
+fn refresh_cookie(config: &Config, value: String, max_age_secs: i64) -> Cookie<'static> {
+    Cookie::build((REFRESH_COOKIE, value))
         .http_only(true)
         .secure(config.cookie_secure)
         .same_site(SameSite::Strict)
         .path(REFRESH_COOKIE_PATH)
-        .max_age(time::Duration::seconds(tokens.refresh_max_age_secs))
-        .build();
-    (jar.add(cookie), Json(tokens.body))
+        .max_age(time::Duration::seconds(max_age_secs))
+        .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::test_support;
+
+    #[test]
+    fn refresh_cookie_is_locked_down() {
+        let c = refresh_cookie(&test_support::config(), "tok".into(), 3600);
+        assert_eq!(c.name(), REFRESH_COOKIE);
+        assert_eq!(c.value(), "tok");
+        assert_eq!(c.http_only(), Some(true));
+        assert_eq!(c.secure(), Some(true));
+        assert_eq!(c.same_site(), Some(SameSite::Strict));
+        assert_eq!(c.path(), Some("/auth"));
+        assert_eq!(c.max_age(), Some(time::Duration::seconds(3600)));
+    }
+
+    #[test]
+    fn secure_flag_follows_config() {
+        let mut config = test_support::config();
+        config.cookie_secure = false;
+        assert_eq!(refresh_cookie(&config, "t".into(), 1).secure(), Some(false));
+    }
+
+    #[test]
+    fn refresh_token_read_from_cookie() {
+        let jar = CookieJar::new();
+        assert!(matches!(refresh_token(&jar), Err(AppError::Unauthorized)));
+        let jar = jar.add(Cookie::new(REFRESH_COOKIE, "abc"));
+        assert_eq!(refresh_token(&jar).unwrap(), "abc");
+    }
 }

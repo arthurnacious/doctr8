@@ -199,3 +199,110 @@ fn prefixed(path: &str, err: AppError) -> AppError {
         other => other,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::common::test_support::today;
+
+    fn new_person(first: &str) -> Value {
+        json!({"new": {"first_name": first, "last_name": "Test"}})
+    }
+
+    fn validate(v: Value) -> AppResult<PatientFile> {
+        serde_json::from_value::<CreatePatientFileRequest>(v).unwrap().validate(today())
+    }
+
+    fn err(v: Value) -> String {
+        validate(v).err().expect("expected a validation error").to_string()
+    }
+
+    #[test]
+    fn minimal_private_file() {
+        let f = validate(json!({"patients": [{"person": new_person("A")}], "guarantor": {"patient": 0}})).unwrap();
+        assert_eq!(f.patients.len(), 1);
+        assert!(matches!(f.patients[0].person, PersonSource::New(_)));
+        assert!(f.patients[0].dependant_code.is_none());
+        assert!(matches!(f.guarantor, Party::Patient(0)));
+        assert!(f.medical_aid.is_none());
+    }
+
+    #[test]
+    fn wire_format_variants() {
+        let id = Uuid::from_u128(7);
+        let f = validate(json!({
+            "patients": [{"person": {"existing": id}, "dependant_code": "02"}],
+            "guarantor": {"existing": id},
+            "medical_aid": {"existing": id}
+        }))
+        .unwrap();
+        assert!(matches!(f.patients[0].person, PersonSource::Existing(x) if x == id));
+        assert_eq!(f.patients[0].dependant_code.as_deref(), Some("02"));
+        assert!(matches!(f.guarantor, Party::Existing(x) if x == id));
+        assert!(matches!(f.medical_aid, Some(MedicalAidSource::Existing(x)) if x == id));
+
+        let f = validate(json!({
+            "patients": [{"person": new_person("A")}],
+            "guarantor": new_person("Payer"),
+            "medical_aid": {"new": {"scheme_id": id, "plan_id": id, "membership_number": " m 1 ", "main_member": "guarantor"}}
+        }))
+        .unwrap();
+        assert!(matches!(f.guarantor, Party::New(_)));
+        match f.medical_aid {
+            Some(MedicalAidSource::New(m)) => {
+                assert_eq!(m.membership_number, "M1");
+                assert!(matches!(m.main_member, Party::Guarantor));
+            }
+            _ => panic!("expected new medical aid"),
+        }
+    }
+
+    #[test]
+    fn needs_one_to_twenty_patients() {
+        assert!(err(json!({"patients": [], "guarantor": new_person("G")})).contains("at least one"));
+        let many: Vec<Value> = (0..=MAX_PATIENTS_PER_REQUEST).map(|i| json!({"person": new_person(&format!("P{i}"))})).collect();
+        assert!(err(json!({"patients": many, "guarantor": {"patient": 0}})).contains("at most"));
+        let max: Vec<Value> = (0..MAX_PATIENTS_PER_REQUEST).map(|i| json!({"person": new_person(&format!("P{i}"))})).collect();
+        assert!(validate(json!({"patients": max, "guarantor": {"patient": 0}})).is_ok());
+    }
+
+    #[test]
+    fn guarantor_cannot_be_guarantor() {
+        assert!(err(json!({"patients": [{"person": new_person("A")}], "guarantor": "guarantor"})).contains("guarantor"));
+    }
+
+    #[test]
+    fn patient_indexes_must_exist() {
+        assert!(err(json!({"patients": [{"person": new_person("A")}], "guarantor": {"patient": 1}})).contains("guarantor"));
+        let e = err(json!({
+            "patients": [{"person": new_person("A")}], "guarantor": {"patient": 0},
+            "medical_aid": {"new": {"scheme_id": Uuid::nil(), "plan_id": Uuid::nil(), "membership_number": "1", "main_member": {"patient": 5}}}
+        }));
+        assert!(e.contains("medical_aid.main_member"), "{e}");
+    }
+
+    #[test]
+    fn errors_say_where_they_came_from() {
+        let e = err(json!({"patients": [{"person": new_person("A")}, {"person": new_person(" ")}], "guarantor": {"patient": 0}}));
+        assert!(e.starts_with("patients[1]: first_name"), "{e}");
+        let e = err(json!({"patients": [{"person": new_person("A"), "dependant_code": "1"}], "guarantor": {"patient": 0}}));
+        assert!(e.starts_with("patients[0]: dependant_code"), "{e}");
+        let e = err(json!({"patients": [{"person": new_person("A")}], "guarantor": {"new": {"first_name": "G", "last_name": "", "mobile": "x"}}}));
+        assert!(e.starts_with("guarantor: "), "{e}");
+        let e = err(json!({
+            "patients": [{"person": new_person("A")}], "guarantor": {"patient": 0},
+            "medical_aid": {"new": {"scheme_id": Uuid::nil(), "plan_id": Uuid::nil(), "membership_number": "#", "main_member": "guarantor"}}
+        }));
+        assert!(e.starts_with("medical_aid: membership_number"), "{e}");
+    }
+
+    #[test]
+    fn unknown_shapes_are_rejected_by_serde() {
+        let parse = |v| serde_json::from_value::<CreatePatientFileRequest>(v).is_err();
+        assert!(parse(json!({"patients": [{"person": {"maybe": 1}}], "guarantor": {"patient": 0}})));
+        assert!(parse(json!({"patients": [{"person": new_person("A")}], "guarantor": "patient"})));
+        assert!(parse(json!({"patients": [{"person": new_person("A")}]})), "guarantor is required");
+    }
+}

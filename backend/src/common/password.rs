@@ -50,3 +50,38 @@ fn dummy_hash() -> &'static str {
     static DUMMY: OnceLock<String> = OnceLock::new();
     DUMMY.get_or_init(|| hash_sync("doctr8-timing-equaliser").expect("hashing dummy password"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn hash_then_verify() {
+        let h = hash("correct horse battery".into()).await.unwrap();
+        assert!(h.starts_with("$argon2id$"), "argon2id PHC string");
+        assert!(verify("correct horse battery".into(), Some(h.clone())).await.unwrap());
+        assert!(!verify("correct horse batterY".into(), Some(h)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn hashes_are_salted() {
+        let a = hash("same password here".into()).await.unwrap();
+        let b = hash("same password here".into()).await.unwrap();
+        assert_ne!(a, b);
+    }
+
+    #[tokio::test]
+    async fn missing_hash_never_verifies() {
+        // Unknown user / invite not accepted: even the dummy password fails.
+        assert!(!verify("doctr8-timing-equaliser".into(), None).await.unwrap());
+        assert!(!verify("anything".into(), None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn corrupt_stored_hash_is_an_error_not_a_match() {
+        assert!(verify("x".into(), Some("not-a-phc-string".into())).await.is_err());
+    }
+
+    // Compile-time: a policy change here should be deliberate.
+    const _: () = assert!(MIN_LENGTH == 12 && MAX_LENGTH >= 128);
+}

@@ -19,7 +19,7 @@ use crate::{
         permission,
     },
     config::Config,
-    modules::access::{tenants, users},
+    modules::access::{tenants, tenants::dto::PracticeSummary, users},
 };
 
 /// Which practice the new access token should be for.
@@ -152,16 +152,7 @@ impl AuthService {
             .await?
             .ok_or(AppError::Unauthorized)?;
         let practices = tenants::repository::list_active_for_user(conn, user_id).await?;
-        let find = |id: Uuid| practices.iter().find(|p| p.id == id).cloned();
-
-        let practice = match target {
-            Target::Exact(id) => Some(find(id).ok_or(AppError::Forbidden(
-                "You are not an active member of that practice",
-            ))?),
-            Target::KeepIfMember(id) => find(id),
-            Target::AutoSingle if practices.len() == 1 => practices.first().cloned(),
-            Target::AutoSingle | Target::Unselected => None,
-        };
+        let practice = choose_practice(target, &practices)?;
 
         let permissions = match &practice {
             Some(p) => {
@@ -202,6 +193,20 @@ impl AuthService {
     }
 }
 
+/// Decide which practice the new token is for, given the practices the user
+/// is an active member of.
+fn choose_practice(target: Target, practices: &[PracticeSummary]) -> AppResult<Option<PracticeSummary>> {
+    let find = |id: Uuid| practices.iter().find(|p| p.id == id).cloned();
+    Ok(match target {
+        Target::Exact(id) => Some(find(id).ok_or(AppError::Forbidden(
+            "You are not an active member of that practice",
+        ))?),
+        Target::KeepIfMember(id) => find(id),
+        Target::AutoSingle if practices.len() == 1 => practices.first().cloned(),
+        Target::AutoSingle | Target::Unselected => None,
+    })
+}
+
 /// 256-bit random opaque token. Returns (raw for the client, hash for the DB).
 fn new_refresh_token() -> (String, Vec<u8>) {
     let mut bytes = [0u8; 32];
@@ -213,4 +218,71 @@ fn new_refresh_token() -> (String, Vec<u8>) {
 
 fn hash_token(raw: &str) -> Vec<u8> {
     Sha256::digest(raw.as_bytes()).to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn practice(n: u128) -> PracticeSummary {
+        PracticeSummary { id: Uuid::from_u128(n), slug: format!("p{n}"), name: format!("Practice {n}") }
+    }
+
+    fn chosen(target: Target, practices: &[PracticeSummary]) -> Option<Uuid> {
+        choose_practice(target, practices).unwrap().map(|p| p.id)
+    }
+
+    #[test]
+    fn auto_single_picks_the_only_practice() {
+        assert_eq!(chosen(Target::AutoSingle, &[practice(1)]), Some(Uuid::from_u128(1)));
+    }
+
+    #[test]
+    fn auto_single_leaves_choice_to_user_when_zero_or_many() {
+        assert_eq!(chosen(Target::AutoSingle, &[]), None);
+        assert_eq!(chosen(Target::AutoSingle, &[practice(1), practice(2)]), None);
+    }
+
+    #[test]
+    fn exact_requires_active_membership() {
+        let ps = [practice(1), practice(2)];
+        assert_eq!(chosen(Target::Exact(Uuid::from_u128(2)), &ps), Some(Uuid::from_u128(2)));
+        let err = choose_practice(Target::Exact(Uuid::from_u128(3)), &ps).unwrap_err();
+        assert!(matches!(err, AppError::Forbidden(_)));
+    }
+
+    #[test]
+    fn keep_if_member_drops_practice_silently_after_removal() {
+        let ps = [practice(1)];
+        assert_eq!(chosen(Target::KeepIfMember(Uuid::from_u128(1)), &ps), Some(Uuid::from_u128(1)));
+        assert_eq!(chosen(Target::KeepIfMember(Uuid::from_u128(9)), &ps), None);
+    }
+
+    #[test]
+    fn unselected_selects_nothing() {
+        assert_eq!(chosen(Target::Unselected, &[practice(1)]), None);
+    }
+
+    #[test]
+    fn refresh_tokens_are_256_bit_url_safe_and_hashed() {
+        let (raw, hash) = new_refresh_token();
+        assert_eq!(raw.len(), 43, "32 bytes base64url without padding");
+        assert!(raw.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert_eq!(URL_SAFE_NO_PAD.decode(&raw).unwrap().len(), 32);
+        assert_eq!(hash.len(), 32, "SHA-256");
+        assert_eq!(hash, hash_token(&raw), "stored hash must match a re-hash of the presented token");
+        assert_ne!(hash, raw.as_bytes(), "raw token is never what we store");
+    }
+
+    #[test]
+    fn refresh_tokens_are_unique() {
+        let tokens: std::collections::HashSet<String> = (0..200).map(|_| new_refresh_token().0).collect();
+        assert_eq!(tokens.len(), 200);
+    }
+
+    #[test]
+    fn token_hash_is_deterministic_and_input_sensitive() {
+        assert_eq!(hash_token("abc"), hash_token("abc"));
+        assert_ne!(hash_token("abc"), hash_token("abd"));
+    }
 }

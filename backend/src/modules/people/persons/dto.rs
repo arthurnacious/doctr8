@@ -339,6 +339,143 @@ mod tests {
         assert!(p.validate(today()).is_err());
     }
 
+    fn person(v: serde_json::Value) -> AppResult<NewPerson> {
+        let mut base = serde_json::json!({"first_name": "A", "last_name": "B"});
+        base.as_object_mut().unwrap().extend(v.as_object().unwrap().clone());
+        serde_json::from_value::<PersonInput>(base).unwrap().validate(today())
+    }
+
+    #[test]
+    fn minimal_person_has_no_optional_fields() {
+        let p = person(serde_json::json!({})).unwrap();
+        assert!(p.title.is_none() && p.date_of_birth.is_none() && p.id_type.is_none() && p.email.is_none());
+        assert!(p.id_country.is_none(), "no ID, no country");
+    }
+
+    #[test]
+    fn names_required_and_trimmed() {
+        assert!(person(serde_json::json!({"first_name": " "})).is_err());
+        assert!(person(serde_json::json!({"last_name": ""})).is_err());
+        assert_eq!(person(serde_json::json!({"first_name": "  Thandi "})).unwrap().first_name, "Thandi");
+        assert!(person(serde_json::json!({"first_name": "x".repeat(101)})).is_err());
+        assert!(person(serde_json::json!({"title": "x".repeat(21)})).is_err());
+    }
+
+    #[test]
+    fn id_type_without_number_is_rejected() {
+        assert!(person(serde_json::json!({"id_type": "passport"})).is_err());
+        assert!(person(serde_json::json!({"id_type": "sa_id", "id_number": "  "})).is_err());
+    }
+
+    #[test]
+    fn explicit_sa_id_matching_dob_is_fine() {
+        let p = person(serde_json::json!({"id_type": "sa_id", "id_number": "8001015009087", "date_of_birth": "1980-01-01"})).unwrap();
+        assert_eq!(p.date_of_birth, NaiveDate::from_ymd_opt(1980, 1, 1));
+    }
+
+    #[test]
+    fn sa_id_keeps_explicit_country() {
+        // Unusual, but we don't overwrite what the user said.
+        let p = person(serde_json::json!({"id_number": "8001015009087", "id_country": "za"})).unwrap();
+        assert_eq!(p.id_country.as_deref(), Some("ZA"));
+    }
+
+    #[test]
+    fn passports_are_normalised() {
+        let p = person(serde_json::json!({"id_type": "passport", "id_number": " ab 12345 ", "id_country": "zw"})).unwrap();
+        assert_eq!(p.id_type, Some("passport"));
+        assert_eq!(p.id_number.as_deref(), Some("AB12345"));
+        assert_eq!(p.id_country.as_deref(), Some("ZW"));
+        assert!(person(serde_json::json!({"id_type": "passport", "id_number": "ab1", "id_country": "ZW"})).is_err(), "too short");
+        assert!(person(serde_json::json!({"id_type": "passport", "id_number": "ab-12345", "id_country": "ZW"})).is_err());
+    }
+
+    #[test]
+    fn country_codes() {
+        assert!(person(serde_json::json!({"id_type": "passport", "id_number": "AB12345", "id_country": "ZWE"})).is_err());
+        assert!(person(serde_json::json!({"id_type": "passport", "id_number": "AB12345", "id_country": "Z1"})).is_err());
+    }
+
+    #[test]
+    fn other_id_types_are_kept_as_entered() {
+        let p = person(serde_json::json!({"id_type": "other", "id_number": "asylum-77"})).unwrap();
+        assert_eq!((p.id_type, p.id_number.as_deref()), (Some("other"), Some("asylum-77")));
+    }
+
+    #[test]
+    fn dob_cannot_be_in_the_future() {
+        assert!(person(serde_json::json!({"date_of_birth": "2026-11-08"})).is_err());
+        assert!(person(serde_json::json!({"date_of_birth": "2026-11-07"})).is_ok(), "born today");
+    }
+
+    #[test]
+    fn contact_details_are_normalised_or_rejected() {
+        let p = person(serde_json::json!({
+            "email": " Thandi@Example.com ", "mobile": "+27 82 555 1234", "home_phone": "011 555 1234",
+            "postal_code": " 2001 ", "suburb": "  ", "sex": "female"
+        }))
+        .unwrap();
+        assert_eq!(p.email.as_deref(), Some("thandi@example.com"));
+        assert_eq!(p.mobile.as_deref(), Some("+27825551234"));
+        assert_eq!(p.home_phone.as_deref(), Some("0115551234"));
+        assert_eq!(p.postal_code.as_deref(), Some("2001"));
+        assert_eq!(p.suburb, None, "blank optional becomes None");
+        assert_eq!(p.sex, Some("female"));
+        assert!(person(serde_json::json!({"email": "nope"})).is_err());
+        assert!(person(serde_json::json!({"mobile": "12"})).is_err());
+        assert!(person(serde_json::json!({"postal_code": "12345"})).is_err());
+        assert!(serde_json::from_value::<PersonInput>(serde_json::json!({"first_name": "A", "last_name": "B", "sex": "x"})).is_err());
+    }
+
+    #[test]
+    fn validation_errors_never_echo_values() {
+        for (field, value) in [("email", "thandi.secret@"), ("mobile", "082-SECRET"), ("postal_code", "SECRET")] {
+            let msg = person(serde_json::json!({ field: value })).err().unwrap().to_string();
+            assert!(!msg.contains("secret") && !msg.contains("SECRET"), "{msg}");
+        }
+    }
+
+    #[test]
+    fn search_single_word_and_mixed() {
+        let t = SearchPersonsRequest { query: "  Nkosi ".into(), limit: None }.validate().unwrap();
+        assert_eq!((t.name_a.as_deref(), t.name_b.as_deref()), (Some("nkosi"), None));
+        assert_eq!(t.limit, 20);
+        // Passport-looking input searches both as ID and as a name.
+        let t = SearchPersonsRequest { query: "ab12345".into(), limit: None }.validate().unwrap();
+        assert_eq!(t.id_number.as_deref(), Some("AB12345"));
+        assert_eq!(t.name_a.as_deref(), Some("ab12345"));
+        assert_eq!(t.account_no, None);
+    }
+
+    #[test]
+    fn search_account_numbers() {
+        let t = SearchPersonsRequest { query: "0042".into(), limit: None }.validate().unwrap();
+        assert_eq!(t.account_no, Some(42));
+        assert!(t.name_a.is_none());
+        let t = SearchPersonsRequest { query: "99999999999999999999999".into(), limit: None }.validate().unwrap();
+        assert_eq!(t.account_no, None, "overflow is not an account number");
+    }
+
+    #[test]
+    fn search_bounds() {
+        assert!(SearchPersonsRequest { query: "a".into(), limit: None }.validate().is_err());
+        assert!(SearchPersonsRequest { query: "a".repeat(101), limit: None }.validate().is_err());
+        assert_eq!(SearchPersonsRequest { query: "ab".into(), limit: Some(0) }.validate().unwrap().limit, 1);
+        assert_eq!(SearchPersonsRequest { query: "ab".into(), limit: Some(-5) }.validate().unwrap().limit, 1);
+    }
+
+    #[test]
+    fn search_ignores_punctuation_only_words_and_extra_words() {
+        let t = SearchPersonsRequest { query: "smith - jo extra".into(), limit: None }.validate().unwrap();
+        assert_eq!((t.name_a.as_deref(), t.name_b.as_deref()), (Some("smith"), Some("jo")));
+        assert_eq!(t.id_number, None, "contains spaces and punctuation");
+    }
+
+    #[test]
+    fn like_prefix_escapes_wildcards_and_backslash() {
+        assert_eq!(like_prefix("A%b_c\\d"), "a\\%b\\_c\\\\d");
+    }
+
     #[test]
     fn search_parsing() {
         let t = SearchPersonsRequest { query: "Smith jo_".into(), limit: None }.validate().unwrap();

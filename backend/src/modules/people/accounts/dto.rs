@@ -88,3 +88,34 @@ impl AddPatientRequest {
         self.dependant_code.as_deref().map(validation::dependant_code).transpose()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn update_membership_absent_null_value() {
+        let u = |v| serde_json::from_value::<UpdateAccountRequest>(v).unwrap();
+        assert!(u(json!({})).membership_id.is_none());
+        assert_eq!(u(json!({"membership_id": null})).membership_id, Some(None), "null = make private");
+        assert_eq!(u(json!({"membership_id": Uuid::from_u128(5)})).membership_id, Some(Some(Uuid::from_u128(5))));
+    }
+
+    #[test]
+    fn statuses() {
+        let u: UpdateAccountRequest = serde_json::from_value(json!({"status": "closed"})).unwrap();
+        assert_eq!(u.status.map(AccountStatus::as_str), Some("closed"));
+        assert_eq!(AccountStatus::Open.as_str(), "open");
+        assert!(serde_json::from_value::<UpdateAccountRequest>(json!({"status": "deleted"})).is_err());
+    }
+
+    #[test]
+    fn add_patient_code_validation() {
+        let r = |v| serde_json::from_value::<AddPatientRequest>(v).unwrap();
+        assert_eq!(r(json!({"person_id": Uuid::nil()})).validated_code().unwrap(), None);
+        assert_eq!(r(json!({"person_id": Uuid::nil(), "dependant_code": "03"})).validated_code().unwrap().as_deref(), Some("03"));
+        assert!(r(json!({"person_id": Uuid::nil(), "dependant_code": "3"})).validated_code().is_err());
+    }
+}

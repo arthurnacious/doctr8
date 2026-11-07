@@ -3,6 +3,9 @@ mod config;
 mod modules;
 mod state;
 
+#[cfg(test)]
+mod route_tests;
+
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::trace::TraceLayer;

@@ -87,3 +87,48 @@ impl UpdateMembershipRequest {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn create_normalises_membership_number() {
+        let m = serde_json::from_value::<CreateMembershipRequest>(json!({
+            "scheme_id": Uuid::from_u128(1), "plan_id": Uuid::from_u128(2),
+            "membership_number": " ab 12 34 ", "main_member_person_id": Uuid::from_u128(3)
+        }))
+        .unwrap()
+        .validate()
+        .unwrap();
+        assert_eq!(m.membership_number, "AB1234");
+        assert_eq!((m.scheme_id, m.plan_id, m.main_member_person_id), (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3)));
+    }
+
+    #[test]
+    fn create_rejects_bad_number() {
+        let r = serde_json::from_value::<CreateMembershipRequest>(json!({
+            "scheme_id": Uuid::from_u128(1), "plan_id": Uuid::from_u128(2),
+            "membership_number": "ab#1", "main_member_person_id": Uuid::from_u128(3)
+        }))
+        .unwrap();
+        assert!(r.validate().is_err());
+    }
+
+    #[test]
+    fn update_leaves_absent_fields_alone() {
+        let c = serde_json::from_value::<UpdateMembershipRequest>(json!({})).unwrap().validate().unwrap();
+        assert!(c.plan_id.is_none() && c.membership_number.is_none() && c.main_member_person_id.is_none());
+        let c = serde_json::from_value::<UpdateMembershipRequest>(json!({"membership_number": "x1"})).unwrap().validate().unwrap();
+        assert_eq!(c.membership_number.as_deref(), Some("X1"));
+    }
+
+    #[test]
+    fn scheme_change_is_not_accepted() {
+        // Unknown fields are ignored, so scheme_id can't sneak into an update.
+        let c = serde_json::from_value::<UpdateMembershipRequest>(json!({"scheme_id": Uuid::from_u128(9)})).unwrap().validate().unwrap();
+        assert!(c.plan_id.is_none());
+    }
+}

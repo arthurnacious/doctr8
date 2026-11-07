@@ -84,3 +84,48 @@ pub struct SetPermissionsRequest {
     /// The complete set of permission keys (replaces existing).
     pub permissions: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn create(v: serde_json::Value) -> AppResult<NewRole> {
+        serde_json::from_value::<CreateRoleRequest>(v).unwrap().validate()
+    }
+
+    #[test]
+    fn create_parses_permissions() {
+        let r = create(json!({"name": " Reception ", "description": " Front desk ", "permissions": ["roles.view", "members.view", "roles.view"]})).unwrap();
+        assert_eq!(r.name, "Reception");
+        assert_eq!(r.description.as_deref(), Some("Front desk"));
+        assert_eq!(r.permissions.into_iter().collect::<Vec<_>>(), vec![Permission::MembersView, Permission::RolesView]);
+    }
+
+    #[test]
+    fn create_defaults() {
+        let r = create(json!({"name": "Empty"})).unwrap();
+        assert!(r.permissions.is_empty());
+        assert_eq!(r.description, None);
+        assert_eq!(create(json!({"name": "A", "description": "  "})).unwrap().description, None);
+    }
+
+    #[test]
+    fn create_rejects() {
+        assert!(create(json!({"name": ""})).is_err());
+        assert!(create(json!({"name": "x".repeat(65)})).is_err());
+        assert!(create(json!({"name": "A", "description": "x".repeat(501)})).is_err());
+        assert!(create(json!({"name": "A", "permissions": ["patients.delete"]})).is_err());
+    }
+
+    #[test]
+    fn update_description_absent_null_value() {
+        let u = |v| serde_json::from_value::<UpdateRoleRequest>(v).unwrap().validate().unwrap();
+        assert!(u(json!({})).description.is_none());
+        assert_eq!(u(json!({"description": null})).description, Some(None));
+        assert_eq!(u(json!({"description": " x "})).description, Some(Some("x".into())));
+        assert_eq!(u(json!({"name": " New "})).name.as_deref(), Some("New"));
+        assert!(serde_json::from_value::<UpdateRoleRequest>(json!({"name": ""})).unwrap().validate().is_err());
+    }
+}

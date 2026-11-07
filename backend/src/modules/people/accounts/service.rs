@@ -285,3 +285,128 @@ mod tests {
         assert_eq!(default_dependant_code(id(3), id(P), false, &taken).unwrap(), "02");
     }
 }
+
+/// Exhaustive file-mode matrix. Mirrors app.validate_account() in
+/// migrations/0002 — if you change one, change the other.
+#[cfg(test)]
+mod rule_matrix {
+    use super::*;
+
+    const ALL_MODES: [FileMode; 3] = [FileMode::PatientPerFile, FileMode::FamilyPerFile, FileMode::DebtorPerVisit];
+    const PRINCIPAL: u128 = 1;
+
+    fn id(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn slots(spec: &[(u128, &str)]) -> Vec<Slot> {
+        spec.iter().map(|(p, c)| Slot { person_id: id(*p), dependant_code: (*c).into() }).collect()
+    }
+
+    fn ok(mode: FileMode, spec: &[(u128, &str)], adding: bool) -> bool {
+        check_file_rules(mode, id(PRINCIPAL), &slots(spec), adding).is_ok()
+    }
+
+    #[test]
+    fn empty_file_is_never_valid() {
+        for m in ALL_MODES {
+            assert!(!ok(m, &[], false), "{m:?}");
+        }
+    }
+
+    #[test]
+    fn principal_alone_is_valid_in_every_mode() {
+        for m in ALL_MODES {
+            assert!(ok(m, &[(PRINCIPAL, "00")], false), "{m:?}");
+        }
+    }
+
+    #[test]
+    fn principal_and_dependants() {
+        let family = [(PRINCIPAL, "00"), (2, "01"), (3, "02"), (4, "07")];
+        assert!(ok(FileMode::FamilyPerFile, &family, false));
+        assert!(!ok(FileMode::PatientPerFile, &family, false));
+        assert!(!ok(FileMode::DebtorPerVisit, &family, false));
+    }
+
+    #[test]
+    fn lone_dependant_is_valid_only_in_single_patient_modes() {
+        assert!(ok(FileMode::PatientPerFile, &[(2, "01")], false));
+        assert!(ok(FileMode::DebtorPerVisit, &[(2, "01")], false));
+        assert!(!ok(FileMode::FamilyPerFile, &[(2, "01")], false));
+    }
+
+    #[test]
+    fn code_00_belongs_to_the_principal_in_every_mode() {
+        for m in ALL_MODES {
+            assert!(!ok(m, &[(2, "00")], false), "non-principal as 00 in {m:?}");
+            assert!(!ok(m, &[(PRINCIPAL, "03")], false), "principal not 00 in {m:?}");
+        }
+    }
+
+    #[test]
+    fn adding_to_existing_accounts() {
+        assert!(ok(FileMode::FamilyPerFile, &[(PRINCIPAL, "00"), (2, "01")], true));
+        assert!(!ok(FileMode::PatientPerFile, &[(PRINCIPAL, "00"), (2, "01")], true), "second patient");
+        assert!(!ok(FileMode::DebtorPerVisit, &[(PRINCIPAL, "00")], true), "never add to a visit account");
+    }
+
+    #[test]
+    fn edits_on_existing_debtor_accounts_are_allowed() {
+        // Renumbering a patient isn't "adding".
+        assert!(ok(FileMode::DebtorPerVisit, &[(2, "04")], false));
+    }
+
+    #[test]
+    fn duplicates_rejected_in_every_mode() {
+        for m in ALL_MODES {
+            assert!(!ok(m, &[(2, "01"), (2, "02")], false), "{m:?}");
+            assert!(!ok(m, &[(2, "01"), (3, "01")], false), "{m:?}");
+        }
+    }
+
+    #[test]
+    fn error_kinds_guide_the_client() {
+        let conflict = check_file_rules(FileMode::PatientPerFile, id(PRINCIPAL), &slots(&[(PRINCIPAL, "00"), (2, "01")]), false);
+        assert!(matches!(conflict, Err(AppError::Conflict(ref m)) if m.contains("patient per file")));
+        let visit = check_file_rules(FileMode::DebtorPerVisit, id(PRINCIPAL), &slots(&[(2, "01")]), true);
+        assert!(matches!(visit, Err(AppError::Conflict(ref m)) if m.contains("new account for each visit")));
+        let family = check_file_rules(FileMode::FamilyPerFile, id(PRINCIPAL), &slots(&[(2, "01")]), false);
+        assert!(matches!(family, Err(AppError::Validation(ref m)) if m.contains("main member")));
+    }
+
+    #[test]
+    fn default_codes_fill_gaps_and_run_out() {
+        let taken = slots(&[(PRINCIPAL, "00"), (2, "02"), (3, "03")]);
+        assert_eq!(default_dependant_code(id(9), id(PRINCIPAL), false, &taken).unwrap(), "01");
+        let full: Vec<Slot> = (0..=99).map(|n| Slot { person_id: id(100 + n), dependant_code: format!("{n:02}") }).collect();
+        assert!(default_dependant_code(id(9), id(PRINCIPAL), false, &full).is_err());
+    }
+
+    #[test]
+    fn principal_defaults_to_00_even_on_medical_aid() {
+        assert_eq!(default_dependant_code(id(PRINCIPAL), id(PRINCIPAL), true, &[]).unwrap(), MAIN_MEMBER);
+    }
+
+    #[test]
+    fn principal_is_main_member_or_guarantor() {
+        let row = |main: Option<Uuid>| repo::AccountRow {
+            id: id(50),
+            account_no: 1,
+            file_mode: "patient_per_file".into(),
+            status: "open".into(),
+            guarantor_person_id: id(2),
+            guarantor_first_name: String::new(),
+            guarantor_last_name: String::new(),
+            membership_id: main.map(|_| id(60)),
+            scheme_name: None,
+            plan_name: None,
+            membership_number: None,
+            main_member_person_id: main,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        assert_eq!(row(None).principal(), id(2), "private: guarantor");
+        assert_eq!(row(Some(id(3))).principal(), id(3), "medical aid: main member");
+    }
+}

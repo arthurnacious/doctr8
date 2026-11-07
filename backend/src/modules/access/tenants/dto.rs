@@ -126,3 +126,63 @@ impl UpdateTenantRequest {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn create(v: serde_json::Value) -> AppResult<NewTenant> {
+        serde_json::from_value::<CreateTenantRequest>(v).unwrap().validate()
+    }
+
+    fn update(v: serde_json::Value) -> AppResult<TenantChanges> {
+        serde_json::from_value::<UpdateTenantRequest>(v).unwrap().validate()
+    }
+
+    #[test]
+    fn create_normalises() {
+        let t = create(json!({"name": "  Dr A  ", "slug": "Dr-A", "pcns_number": "012 3456"})).unwrap();
+        assert_eq!((t.name.as_str(), t.slug.as_str(), t.pcns_number.as_deref()), ("Dr A", "dr-a", Some("0123456")));
+    }
+
+    #[test]
+    fn create_blank_pcns_is_none() {
+        assert_eq!(create(json!({"name": "A", "slug": "abc", "pcns_number": "  "})).unwrap().pcns_number, None);
+        assert_eq!(create(json!({"name": "A", "slug": "abc"})).unwrap().pcns_number, None);
+    }
+
+    #[test]
+    fn create_rejects_bad_fields() {
+        assert!(create(json!({"name": " ", "slug": "abc"})).is_err());
+        assert!(create(json!({"name": "A", "slug": "a"})).is_err());
+        assert!(create(json!({"name": "A", "slug": "abc", "pcns_number": "123"})).is_err());
+        assert!(create(json!({"name": "x".repeat(201), "slug": "abc"})).is_err());
+    }
+
+    #[test]
+    fn update_pcns_absent_null_blank_value() {
+        assert!(update(json!({})).unwrap().pcns_number.is_none());
+        assert_eq!(update(json!({"pcns_number": null})).unwrap().pcns_number, Some(None));
+        assert_eq!(update(json!({"pcns_number": ""})).unwrap().pcns_number, Some(None));
+        assert_eq!(update(json!({"pcns_number": "7654321"})).unwrap().pcns_number, Some(Some("7654321".into())));
+        assert!(update(json!({"pcns_number": "x"})).is_err());
+    }
+
+    #[test]
+    fn update_file_mode() {
+        assert_eq!(update(json!({"file_mode": "family_per_file"})).unwrap().file_mode, Some(FileMode::FamilyPerFile));
+        assert!(serde_json::from_value::<UpdateTenantRequest>(json!({"file_mode": "chaos"})).is_err());
+    }
+
+    #[test]
+    fn file_mode_round_trips_through_db_and_json() {
+        for m in [FileMode::PatientPerFile, FileMode::FamilyPerFile, FileMode::DebtorPerVisit] {
+            assert_eq!(FileMode::from_db(m.as_str()).unwrap(), m);
+            assert_eq!(serde_json::to_value(m).unwrap(), json!(m.as_str()));
+            assert!(!m.label().is_empty());
+        }
+        assert!(FileMode::from_db("nonsense").is_err());
+    }
+}

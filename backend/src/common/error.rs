@@ -151,3 +151,154 @@ pub fn on_unique(
         err.into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::body::to_bytes;
+
+    use super::*;
+    use crate::common::test_support::db_error;
+
+    async fn render(err: AppError) -> (StatusCode, serde_json::Value) {
+        let response = err.into_response();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    #[tokio::test]
+    async fn every_variant_has_status_code_and_message() {
+        let cases = [
+            (AppError::validation("bad"), StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "bad"),
+            (AppError::Unauthorized, StatusCode::UNAUTHORIZED, "unauthorized", "Authentication required"),
+            (AppError::InvalidCredentials, StatusCode::UNAUTHORIZED, "invalid_credentials", "Invalid email or password"),
+            (AppError::forbidden(), StatusCode::FORBIDDEN, "forbidden", "You do not have permission to do this"),
+            (AppError::NotFound("role"), StatusCode::NOT_FOUND, "not_found", "role not found"),
+            (AppError::Conflict("taken".into()), StatusCode::CONFLICT, "conflict", "taken"),
+            (AppError::Internal(anyhow::anyhow!("x")), StatusCode::INTERNAL_SERVER_ERROR, "internal", "Something went wrong"),
+        ];
+        for (err, status, code, message) in cases {
+            let (s, body) = render(err).await;
+            assert_eq!(s, status);
+            assert_eq!(body["error"]["code"], code);
+            assert_eq!(body["error"]["message"], message);
+        }
+    }
+
+    #[tokio::test]
+    async fn internal_errors_never_leak_details_to_clients() {
+        let (_, body) = render(AppError::Internal(anyhow::anyhow!("password=hunter2 at db.internal:5432"))).await;
+        let text = body.to_string();
+        assert!(!text.contains("hunter2") && !text.contains("db.internal"));
+    }
+
+    #[test]
+    fn unique_violation_is_conflict() {
+        assert!(matches!(AppError::from(db_error("23505", Some("x_uq"), "dup")), AppError::Conflict(_)));
+    }
+
+    #[test]
+    fn foreign_key_violation_is_conflict() {
+        assert!(matches!(AppError::from(db_error("23503", None, "fk")), AppError::Conflict(_)));
+    }
+
+    #[test]
+    fn rls_violation_is_forbidden() {
+        assert!(matches!(AppError::from(db_error("42501", None, "rls")), AppError::Forbidden(_)));
+    }
+
+    #[test]
+    fn check_violation_is_validation_naming_only_the_constraint() {
+        let err = AppError::from(db_error("23514", Some("persons_sa_id_check"), "Failing row contains (Thandi, 900215...)"));
+        match err {
+            AppError::Validation(msg) => {
+                assert!(msg.contains("persons_sa_id_check"));
+                assert!(!msg.contains("Thandi"), "row values must not reach the client");
+            }
+            other => panic!("expected validation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn file_mode_trigger_errors_pass_their_message_through() {
+        let err = AppError::from(db_error("D8001", None, "Accounts opened in patient_per_file mode must have exactly one patient"));
+        match err {
+            AppError::Conflict(msg) => assert!(msg.contains("exactly one patient")),
+            other => panic!("expected conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn other_database_errors_are_internal() {
+        assert!(matches!(AppError::from(db_error("08006", None, "connection failure")), AppError::Internal(_)));
+        assert!(matches!(AppError::from(sqlx::Error::PoolTimedOut), AppError::Internal(_)));
+    }
+
+    #[test]
+    fn on_unique_maps_known_constraints_only() {
+        const MAP: &[(&str, &str)] = &[("tenants_slug_key", "That practice address is already taken")];
+        let mapped = on_unique(MAP)(db_error("23505", Some("tenants_slug_key"), "dup"));
+        assert!(matches!(&mapped, AppError::Conflict(m) if m == "That practice address is already taken"));
+
+        let other = on_unique(MAP)(db_error("23505", Some("something_else"), "dup"));
+        assert!(matches!(&other, AppError::Conflict(m) if m == "A record with these details already exists"));
+
+        // Non-unique errors fall through to the normal mapping.
+        assert!(matches!(on_unique(MAP)(db_error("42501", None, "rls")), AppError::Forbidden(_)));
+    }
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn captured_log(f: impl FnOnce()) -> String {
+        let buf = Captured::default();
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        String::from_utf8(buf.0.lock().unwrap().clone()).unwrap()
+    }
+
+    #[test]
+    fn database_errors_are_logged_without_row_values() {
+        let log = captured_log(|| {
+            let err = AppError::Internal(
+                db_error("22P02", Some("persons_x"), "invalid input syntax for type date: \"Thandi Nkosi 9002150123088\"").into(),
+            );
+            let _ = err.into_response();
+        });
+        assert!(log.contains("22P02") && log.contains("persons_x") && log.contains("persons"), "{log}");
+        assert!(!log.contains("Thandi") && !log.contains("9002150123088"), "PII leaked into log: {log}");
+    }
+
+    #[test]
+    fn non_database_internal_errors_are_logged() {
+        let log = captured_log(|| {
+            let _ = AppError::Internal(anyhow::anyhow!("argon2 exploded")).into_response();
+        });
+        assert!(log.contains("argon2 exploded"));
+    }
+
+    #[test]
+    fn client_errors_are_not_logged_as_errors() {
+        let log = captured_log(|| {
+            let _ = AppError::validation("first_name is required").into_response();
+            let _ = AppError::Unauthorized.into_response();
+        });
+        assert!(log.is_empty(), "{log}");
+    }
+}
