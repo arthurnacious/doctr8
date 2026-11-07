@@ -12,7 +12,7 @@ test.describe('patient list', () => {
     await signInAs(page, 'reception@e2e.test', '/patients')
     await expect(page.getByRole('heading', { name: 'Patients' })).toBeVisible()
     await expect(bodyRows(page)).toHaveCount(25)
-    await expect(page.getByText('Showing 1–25 of 29')).toBeVisible()
+    await expect(page.getByText('Showing 1–25 of 31')).toBeVisible()
     await expect(table(page).locator('thead th')).toHaveText([
       'File',
       'Name',
@@ -23,8 +23,8 @@ test.describe('patient list', () => {
       'Main member',
     ])
     await page.getByRole('button', { name: 'Next' }).click()
-    await expect(page.getByText('Showing 26–29 of 29')).toBeVisible()
-    await expect(bodyRows(page)).toHaveCount(4)
+    await expect(page.getByText('Showing 26–31 of 31')).toBeVisible()
+    await expect(bodyRows(page)).toHaveCount(6)
     await expect(page).toHaveURL(/page=2/)
     expect(consoleLines.join('\n')).not.toMatch(
       /Listtest|Mokoena|8001015009087/,

@@ -13,6 +13,7 @@ import { signOut, switchPractice } from '#/lib/auth/actions'
 import { requireSignedIn } from '#/lib/auth/guards'
 import { useSession } from '#/lib/auth/session'
 import { useRealtime } from '#/lib/ws/useRealtime'
+import { useRealtimeQueries } from '#/lib/ws/useRealtimeQueries'
 
 /** Signed-in app: sidebar (a menu on small screens) and a top bar. */
 export const Route = createFileRoute('/_app')({
@@ -31,6 +32,7 @@ function AppLayout() {
   const closeMenu = useCallback(() => setMenuOpen(false), [])
 
   useRealtime(session)
+  useRealtimeQueries()
 
   // The session ended underneath us (refresh failed, or another tab signed
   // out): back to sign in, returning here afterwards if it expired.

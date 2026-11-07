@@ -1,7 +1,12 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
 import { api } from '#/lib/api/client'
-import type { PatientPage, PatientSearchParams } from './types'
+import type {
+  PatientFile,
+  PatientPage,
+  PatientSearchParams,
+  PersonDetails,
+} from './types'
 
 export const PAGE_SIZE = 25
 
@@ -13,6 +18,9 @@ export const patientKeys = {
   all: ['patients'] as const,
   lists: () => ['patients', 'list'] as const,
   list: (p: PatientSearchParams) => ['patients', 'list', p] as const,
+  file: (accountId: string) => ['patients', 'file', accountId] as const,
+  people: () => ['patients', 'person'] as const,
+  person: (personId: string) => ['patients', 'person', personId] as const,
 }
 
 /** The patient list. POST so names and ID numbers never go in a URL. */
@@ -34,5 +42,20 @@ export function usePatientList(p: PatientSearchParams) {
     queryFn: () => searchPatients(p),
     // Keep showing the previous page while the next one loads.
     placeholderData: keepPreviousData,
+  })
+}
+
+export function usePatientFile(accountId: string) {
+  return useQuery({
+    queryKey: patientKeys.file(accountId),
+    queryFn: () => api<PatientFile>(`/patient-files/${accountId}`),
+  })
+}
+
+export function usePerson(personId: string | undefined) {
+  return useQuery({
+    queryKey: patientKeys.person(personId ?? ''),
+    queryFn: () => api<PersonDetails>(`/persons/${personId}`),
+    enabled: Boolean(personId),
   })
 }

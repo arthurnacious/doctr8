@@ -78,6 +78,12 @@ post /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Naled
 INACTIVE=$(post /patient-files '{"patients":[{"person":{"new":{"first_name":"Ina","last_name":"Ctive"}}}],"guarantor":{"patient":0}}' "$TA" | jq -r '.patients[0].patient_id')
 curl -sf -X PUT "$API/patients/$INACTIVE/status" -H 'content-type: application/json' -H "authorization: Bearer $TA" -d '{"status":"inactive"}' >/dev/null
 
+# A family file: Practice A switches to family-per-file just for this one.
+patch_mode() { curl -sf -X PATCH "$API/tenants/current" -H 'content-type: application/json' -H "authorization: Bearer $TA" -d "{\"file_mode\":\"$1\"}" >/dev/null; }
+patch_mode family_per_file
+post /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Sipho\",\"last_name\":\"Dube\"}}},{\"person\":{\"new\":{\"first_name\":\"Ayanda\",\"last_name\":\"Dube\",\"mobile\":\"0821110000\"}},\"dependant_code\":\"01\"}],\"guarantor\":{\"patient\":0},\"medical_aid\":{\"new\":{\"scheme_id\":\"$SCHEME\",\"plan_id\":\"$PLAN\",\"membership_number\":\"FAM-9\",\"main_member\":{\"patient\":0}}}}" "$TA" >/dev/null
+patch_mode patient_per_file
+
 echo "== starting frontend on :$WEB_PORT"
 cd "$FRONTEND"
 DOCTR8_API_URL="$API" VITE_TWO_STEP_STUB=true VITE_DEVTOOLS=false npx vite dev --port "$WEB_PORT" --strictPort >"$WORK/web.log" 2>&1 &
@@ -87,7 +93,7 @@ for _ in $(seq 150); do curl -sf "localhost:$WEB_PORT/sign-in" >/dev/null && bre
 if [[ -z "${CHROMIUM_PATH:-}" ]] && command -v chromium >/dev/null; then
   export CHROMIUM_PATH="$(command -v chromium)"
 fi
-export E2E_BASE_URL="http://localhost:$WEB_PORT" E2E_PASSWORD="$PW"
+export E2E_BASE_URL="http://localhost:$WEB_PORT" E2E_PASSWORD="$PW" E2E_API_URL="$API"
 set +e
 npx playwright test "$@"
 status=$?

@@ -7,6 +7,7 @@ import {
   medicalAidLabel,
   pageCount,
   pageSummary,
+  formatAddress,
 } from './format'
 import { nextRowIndex } from './keyboard'
 
@@ -44,6 +45,28 @@ describe('patient formatting', () => {
     expect(pageSummary(6, 25, 132)).toBe('Showing 126–132 of 132')
     expect(pageCount(25, 0)).toBe(1)
     expect(pageCount(25, 132)).toBe(6)
+  })
+})
+
+describe('addresses', () => {
+  it('joins the parts that are present', () => {
+    const blank = {
+      address_line1: null,
+      address_line2: null,
+      suburb: null,
+      city: null,
+      postal_code: null,
+    }
+    expect(formatAddress(blank)).toBeNull()
+    expect(
+      formatAddress({
+        ...blank,
+        address_line1: '12 Long St',
+        city: 'Durban',
+        postal_code: '4001',
+      }),
+    ).toBe('12 Long St, Durban, 4001')
+    expect(formatAddress({ ...blank, suburb: '  ' })).toBeNull()
   })
 })
 

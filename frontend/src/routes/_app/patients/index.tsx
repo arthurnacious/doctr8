@@ -16,18 +16,19 @@ import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import type { PatientListItem, StatusFilter } from '#/features/patients/types'
 
 interface ListSearch {
-  status: StatusFilter
-  page: number
+  status?: StatusFilter
+  page?: number
 }
 
-const DEFAULT_SEARCH: ListSearch = { status: 'active', page: 1 }
+const DEFAULT_SEARCH = { status: 'active', page: 1 } as const
 
 export const Route = createFileRoute('/_app/patients/')({
   // Only the filter and page live in the URL; the search text may be a
   // name or ID number, so it stays in memory (features/patients/listQuery).
   validateSearch: (s: Record<string, unknown>): ListSearch => ({
-    status: s.status === 'inactive' || s.status === 'all' ? s.status : 'active',
-    page: Math.max(1, Math.floor(Number(s.page)) || 1),
+    status:
+      s.status === 'inactive' || s.status === 'all' ? s.status : undefined,
+    page: Number(s.page) > 1 ? Math.floor(Number(s.page)) : undefined,
   }),
   // Keep URLs clean: defaults aren't written to the address bar.
   search: { middlewares: [stripSearchParams(DEFAULT_SEARCH)] },
@@ -42,7 +43,8 @@ const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
 ]
 
 function PatientList() {
-  const { status, page } = Route.useSearch()
+  const { status = DEFAULT_SEARCH.status, page = DEFAULT_SEARCH.page } =
+    Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [query, setQuery] = useListQuery()
   const debounced = useDebouncedValue(query.trim(), 300)
