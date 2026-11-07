@@ -81,3 +81,14 @@ export function useRealtime(session: SessionState): void {
     if (token) getRealtime().reauthenticate()
   }, [token])
 }
+
+/**
+ * Follow an account's events while the calling screen is open (billing
+ * events are only sent to clients following that account).
+ */
+export function useFollowAccount(accountId: string | undefined): void {
+  useEffect(() => {
+    if (!accountId) return
+    return getRealtime().follow(accountId)
+  }, [accountId])
+}

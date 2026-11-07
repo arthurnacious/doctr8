@@ -63,10 +63,13 @@ src/
     _app.tsx                 app layout + route guard: sidebar, top bar, realtime
     _app/index.tsx           dashboard ("/")
     _app/<section>.tsx       diary, billing, claims, finance, settings
-    _app/patients/           list, file view (+ editing), new-file flow
+    _app/patients/           list, file view (+ editing), new-file flow,
+                             account statement
   features/
     patients/                API hooks, types, formatting, error wording,
                              new-file/ and edit/ form models (zod) and forms
+    billing/                 statement: API hook, types, rand formatting,
+                             visit grouping (statement.ts) and StatementView
   components/
     ui/                      Button, TextField, PasswordField, Checkbox, Tabs …
     form/                    TanStack Form hook + field components (useAppForm)

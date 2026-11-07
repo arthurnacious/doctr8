@@ -10,7 +10,9 @@
  *   4009 practice/user changed → reconnect with the current token;
  *   4003 no practice → stop.
  *
- * Nothing listens to events yet: `subscribe()` is there for later.
+ * - `follow(accountId)` asks for that account's events (account-scoped
+ *   billing events aren't sent otherwise). Follows are counted, sent once
+ *   the socket is ready, and re-sent after every reconnect.
  */
 export type RealtimeMessage =
   | { type: 'ready'; tenant_id: string; expires_at: number }
@@ -76,6 +78,8 @@ export class RealtimeConnection {
   private listeners = new Set<(m: RealtimeMessage) => void>()
   private statusListeners = new Set<(s: RealtimeStatus) => void>()
   private _status: RealtimeStatus = 'idle'
+  private follows = new Map<string, number>()
+  private ready = false
 
   constructor(private readonly opts: RealtimeOptions) {}
 
@@ -96,6 +100,7 @@ export class RealtimeConnection {
     this.timer = null
     const s = this.socket
     this.socket = null
+    this.ready = false
     s?.close(1000, 'closed by client')
     this.setStatus('idle')
   }
@@ -111,6 +116,31 @@ export class RealtimeConnection {
     const token = this.opts.getToken()
     if (token && this.socket?.readyState === OPEN) {
       this.socket.send(JSON.stringify({ type: 'auth', token }))
+    }
+  }
+
+  /** Receive this account's events until the returned function is called. */
+  follow(accountId: string): () => void {
+    const n = this.follows.get(accountId) ?? 0
+    this.follows.set(accountId, n + 1)
+    if (n === 0) this.sendIfReady({ type: 'subscribe', account_id: accountId })
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const left = (this.follows.get(accountId) ?? 1) - 1
+      if (left > 0) {
+        this.follows.set(accountId, left)
+        return
+      }
+      this.follows.delete(accountId)
+      this.sendIfReady({ type: 'unsubscribe', account_id: accountId })
+    }
+  }
+
+  private sendIfReady(msg: object): void {
+    if (this.ready && this.socket?.readyState === OPEN) {
+      this.socket.send(JSON.stringify(msg))
     }
   }
 
@@ -137,6 +167,7 @@ export class RealtimeConnection {
       ((url: string) => new WebSocket(url) as unknown as SocketLike)
     const socket = create(this.opts.url())
     this.socket = socket
+    this.ready = false
 
     socket.onopen = () => {
       const token = this.opts.getToken()
@@ -152,13 +183,18 @@ export class RealtimeConnection {
       }
       if (msg.type === 'ready') {
         this.attempt = 0
+        this.ready = true
         this.setStatus('open')
+        // A new connection knows nothing of earlier follows.
+        for (const id of this.follows.keys())
+          socket.send(JSON.stringify({ type: 'subscribe', account_id: id }))
       }
       for (const l of this.listeners) l(msg)
     }
     socket.onclose = (ev) => {
       if (this.socket !== socket) return // superseded or stopped
       this.socket = null
+      this.ready = false
       if (!this.running) return
       this.onClosed(ev.code)
     }

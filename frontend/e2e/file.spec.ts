@@ -77,12 +77,13 @@ test.describe('patient file', () => {
 
     await page.keyboard.press('ArrowRight')
     await expect(page.getByRole('tabpanel')).toHaveText(
-      'Available once booking and billing are set up.',
+      'Available once booking is set up.',
     )
     await page.keyboard.press('End')
     await expect(page.getByRole('tab', { name: 'Billing' })).toBeFocused()
+    // Reception can't see billing.
     await expect(page.getByRole('tabpanel')).toHaveText(
-      'Available once booking and billing are set up.',
+      "You don't have access to billing in this practice.",
     )
     await expect(page).toHaveURL(/tab=billing/)
   })

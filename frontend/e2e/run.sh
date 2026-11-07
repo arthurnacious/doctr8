@@ -85,6 +85,42 @@ patch_mode family_per_file
 post /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Sipho\",\"last_name\":\"Dube\"}}},{\"person\":{\"new\":{\"first_name\":\"Ayanda\",\"last_name\":\"Dube\",\"mobile\":\"0821110000\"}},\"dependant_code\":\"01\"}],\"guarantor\":{\"patient\":0},\"medical_aid\":{\"new\":{\"scheme_id\":\"$SCHEME\",\"plan_id\":\"$PLAN\",\"membership_number\":\"FAM-9\",\"main_member\":{\"patient\":0}}}}" "$TA" >/dev/null
 patch_mode patient_per_file
 
+# Billing: a statement with two visits on a medical aid file.
+#   visit 1, 100 days ago: claimed and paid in full by the medical aid;
+#   visit 2, today: referred, authorised, part-paid by the medical aid, the
+#   rest moved to the patient; a write-off journal posted and reversed;
+#   plus an unallocated EFT from the patient.
+# Global code tables (maintained by doctr8, not practices): seed as superuser.
+psql "$TEST_DATABASE_URL" -q <<'SQL'
+INSERT INTO icd10_codes (code, description) VALUES
+  ('J06.9', 'Acute upper respiratory infection, unspecified'), ('Z00.0', 'General medical examination');
+INSERT INTO modifiers (code, description) VALUES ('0018', 'Reduced fee');
+INSERT INTO tariff_codes (code_set, code, description) VALUES
+  ('CCSA', '0190', 'Consultation, new patient'), ('CCSA', '0191', 'Consultation, established patient');
+INSERT INTO nappi_codes (code, description) VALUES ('716541001', 'Paracetamol 500mg x 20');
+SQL
+api() { curl -sS --fail-with-body -X "$1" "$API$2" -H 'content-type: application/json' -H "authorization: Bearer $TA" -d "$3"; }
+sa_date() { TZ=Africa/Johannesburg date -d "$1" +%F; }
+api PATCH /tenants/current '{"details":{"address_line1":"1 Main Rd","city":"Durban","postal_code":"4001","phone":"031 555 1234","email":"accounts@practice-a.test","bank_name":"First Bank","bank_account_name":"Practice A","bank_account_number":"62 1234 5678","bank_branch_code":"250655"}}' >/dev/null
+DOC=$(api POST /providers '{"kind":"practice","title":"Dr","first_name":"Thandi","last_name":"Doctor","practice_number":"1234567","hpcsa_number":"MP0123456"}' | jq -r .id)
+REF=$(api POST /providers '{"kind":"external","title":"Dr","last_name":"Referrer","practice_number":"7654321"}' | jq -r .id)
+ASSIST=$(api POST /providers '{"kind":"external","title":"Dr","last_name":"Assist","hpcsa_number":"MP7777777"}' | jq -r .id)
+ROOMS=$(curl -sf "$API/service-centres" -H "authorization: Bearer $TA" | jq -r '.[0].id')
+STM=$(api POST /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Lerato\",\"last_name\":\"Statement\",\"date_of_birth\":\"1985-04-12\"}}}],\"guarantor\":{\"patient\":0},\"medical_aid\":{\"new\":{\"scheme_id\":\"$SCHEME\",\"plan_id\":\"$PLAN\",\"membership_number\":\"STM-1\",\"main_member\":{\"patient\":0}}}}")
+STM_ACC=$(jq -r .id <<<"$STM"); STM_PAT=$(jq -r '.patients[0].patient_id' <<<"$STM")
+inv() { api POST /invoices "$(jq -nc --arg a "$STM_ACC" --arg p "$STM_PAT" --arg d "$DOC" --arg c "$ROOMS" --argjson lines "$1" --argjson extra "$2" \
+  '{account_id:$a, patient_id:$p, treating_provider_id:$d, service_centre_id:$c, lines:$lines} + $extra')" | jq -r .id; }
+OLD=$(inv '[{"tariff_code":"0190","unit_price_cents":52000,"icd10_codes":["J06.9"]}]' "{\"invoice_date\":\"$(sa_date '100 days ago')\"}")
+NEW=$(inv "[{\"tariff_code\":\"0191\",\"unit_price_cents\":39000,\"modifiers\":[\"0018\"],\"icd10_codes\":[\"J06.9\",\"Z00.0\"],\"assistant_provider_id\":\"$ASSIST\"},{\"nappi_code\":\"716541001\",\"quantity\":\"2\",\"unit_price_cents\":1250,\"icd10_codes\":[\"J06.9\"]}]" "{\"referring_provider_id\":\"$REF\",\"authorisation_number\":\"AUTH 77\"}")
+api POST /invoices/$OLD/claims '{}' >/dev/null; api POST /invoices/$NEW/claims '{}' >/dev/null
+RA=$(api POST /remittances "{\"scheme_id\":\"$SCHEME\",\"reference\":\"RA-E2E\",\"received_date\":\"$(sa_date today)\",\"total_cents\":82000}" | jq -r .id)
+api POST /remittances/$RA/allocations "{\"account_id\":\"$STM_ACC\",\"lines\":[{\"invoice_id\":\"$OLD\",\"amount_cents\":52000},{\"invoice_id\":\"$NEW\",\"amount_cents\":30000}]}" >/dev/null
+api POST /liability-transfers "{\"invoice_id\":\"$NEW\",\"from\":\"medical_aid\",\"amount_cents\":9000,\"notes\":\"co-payment\"}" >/dev/null
+WRITE_OFF=$(curl -sf "$API/journal-reason-types" -H "authorization: Bearer $TA" | jq -r '.[] | select(.code=="small_balance_write_off") | .id')
+J=$(api POST /journals "{\"account_id\":\"$STM_ACC\",\"reason_type_id\":\"$WRITE_OFF\",\"notes\":\"x\",\"entries\":[{\"invoice_id\":\"$NEW\",\"bucket\":\"patient\",\"amount_cents\":-500}]}" | jq -r .id)
+api POST /transactions/$J/reverse '{"notes":"posted in error"}' >/dev/null
+api POST /payments "{\"account_id\":\"$STM_ACC\",\"method\":\"eft\",\"amount_cents\":5000,\"reference\":\"EFT-1\"}" >/dev/null
+
 echo "== starting frontend on :$WEB_PORT"
 cd "$FRONTEND"
 DOCTR8_API_URL="$API" VITE_TWO_STEP_STUB=true VITE_DEVTOOLS=false npx vite dev --port "$WEB_PORT" --strictPort >"$WORK/web.log" 2>&1 &

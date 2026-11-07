@@ -204,4 +204,31 @@ describe('realtime connection', () => {
       'wss://app.doctr8.co.za/api/ws',
     )
   })
+
+  it('follows accounts once ready, counted, and again after reconnecting', () => {
+    const { conn, last } = setup()
+    conn.start()
+    const releaseA = conn.follow('a1') // before the socket is ready
+    const releaseB = conn.follow('a1')
+    last().serverOpen()
+    last().serverSend({ type: 'ready', tenant_id: 'p', expires_at: 1 })
+    expect(last().sent).toEqual([
+      { type: 'auth', token: 't1' },
+      { type: 'subscribe', account_id: 'a1' },
+    ])
+    releaseA()
+    expect(last().sent).toHaveLength(2) // still followed once
+    last().serverClose(1006)
+    vi.runOnlyPendingTimers()
+    last().serverOpen()
+    last().serverSend({ type: 'ready', tenant_id: 'p', expires_at: 1 })
+    expect(last().sent.at(-1)).toEqual({ type: 'subscribe', account_id: 'a1' })
+    releaseB()
+    releaseB() // idempotent
+    expect(
+      last().sent.filter((m) => (m as { type: string }).type === 'unsubscribe'),
+    ).toEqual([{ type: 'unsubscribe', account_id: 'a1' }])
+    conn.follow('a2')
+    expect(last().sent.at(-1)).toEqual({ type: 'subscribe', account_id: 'a2' })
+  })
 })

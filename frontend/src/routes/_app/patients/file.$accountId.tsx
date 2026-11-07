@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, FileText, Pencil, Plus } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { Alert } from '#/components/ui/Field'
@@ -198,15 +198,44 @@ function PatientFilePage() {
                   dependantCode={selected.dependant_code}
                 />
               )}
-              {(tab === 'visits' || tab === 'billing') && (
+              {tab === 'visits' && (
                 <p className="py-6 text-sm text-muted">
-                  Available once booking and billing are set up.
+                  Available once booking is set up.
                 </p>
               )}
+              {tab === 'billing' && <BillingTab accountId={f.id} />}
             </Tabs>
           </div>
         </section>
       )}
+    </div>
+  )
+}
+
+/** Billing is per file (account): its statement covers everyone on it. */
+function BillingTab({ accountId }: { accountId: string }) {
+  const canView = useCan('billing.view')
+  if (!canView) {
+    return (
+      <p className="py-6 text-sm text-muted">
+        You don't have access to billing in this practice.
+      </p>
+    )
+  }
+  return (
+    <div className="flex flex-col items-start gap-3 py-2">
+      <p className="text-sm text-muted">
+        The statement covers everyone on this file: invoices by visit, what the
+        medical aid and the patient still owe, and ageing.
+      </p>
+      <Link
+        to="/patients/statement/$accountId"
+        params={{ accountId }}
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-hover"
+      >
+        <FileText className="size-4" aria-hidden="true" />
+        Open statement
+      </Link>
     </div>
   )
 }

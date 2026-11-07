@@ -26,6 +26,22 @@ describe('realtime → query invalidation', () => {
     ])
   })
 
+  it("billing events refresh that account's statement", () => {
+    for (const event of [
+      'account.balance_changed',
+      'claim.status_changed',
+      'remittance.allocated',
+      'invoice.created',
+    ]) {
+      const { qc, keys } = client()
+      invalidateFor(qc, { type: 'event', event, id: 'x', account_id: 'a9' })
+      expect(keys()).toEqual([['billing', 'statement', 'a9']])
+    }
+    const { qc, keys } = client()
+    invalidateFor(qc, { type: 'event', event: 'remittance.received', id: 'r' })
+    expect(keys()).toEqual([])
+  })
+
   it('resync refreshes everything', () => {
     const { qc, keys } = client()
     invalidateFor(qc, { type: 'resync' })
