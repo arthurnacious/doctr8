@@ -235,10 +235,44 @@ pub struct SearchPersonsRequest {
 pub struct SearchTerms {
     pub id_number: Option<String>,
     pub account_no: Option<i64>,
+    /// Upper-cased, spaces removed (as stored).
+    pub membership_number: Option<String>,
     /// LIKE-escaped, lower-cased name prefixes.
     pub name_a: Option<String>,
     pub name_b: Option<String>,
     pub limit: i64,
+}
+
+pub const MAX_QUERY_CHARS: usize = 100;
+
+/// Interpret one free-text search box: name prefixes ("smith jo"), an ID or
+/// passport number, an account (file) number or a membership number. Every
+/// interpretation is tried; any match counts.
+pub fn parse_query(q: &str, limit: i64) -> SearchTerms {
+    let q = q.trim();
+    let compact: String = q.chars().filter(|c| !c.is_whitespace()).collect();
+    let upper = compact.to_uppercase();
+    let all_digits = !compact.is_empty() && compact.chars().all(|c| c.is_ascii_digit());
+    let has_letters = q.chars().any(char::is_alphabetic);
+
+    let mut words = q.split_whitespace().filter(|w| w.chars().any(char::is_alphabetic));
+    let (name_a, name_b) = if has_letters {
+        (words.next().map(like_prefix), words.next().map(like_prefix))
+    } else {
+        (None, None)
+    };
+
+    SearchTerms {
+        id_number: (!upper.is_empty() && upper.chars().all(|c| c.is_ascii_alphanumeric())).then(|| upper.clone()),
+        account_no: if all_digits { compact.parse().ok() } else { None },
+        // Membership numbers always contain a digit; that keeps plain names out.
+        membership_number: (upper.chars().any(|c| c.is_ascii_digit())
+            && upper.chars().all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '-'))
+        .then_some(upper),
+        name_a,
+        name_b,
+        limit,
+    }
 }
 
 impl SearchPersonsRequest {
@@ -247,30 +281,10 @@ impl SearchPersonsRequest {
         if q.chars().count() < 2 {
             return Err(AppError::validation("query must be at least 2 characters"));
         }
-        if q.chars().count() > 100 {
+        if q.chars().count() > MAX_QUERY_CHARS {
             return Err(AppError::validation("query is too long"));
         }
-        let compact: String = q.chars().filter(|c| !c.is_whitespace()).collect();
-        let all_digits = compact.chars().all(|c| c.is_ascii_digit());
-        let has_letters = q.chars().any(char::is_alphabetic);
-
-        let mut words = q.split_whitespace().filter(|w| w.chars().any(char::is_alphabetic));
-        let (name_a, name_b) = if has_letters {
-            (words.next().map(like_prefix), words.next().map(like_prefix))
-        } else {
-            (None, None)
-        };
-
-        Ok(SearchTerms {
-            id_number: compact
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric())
-                .then(|| compact.to_uppercase()),
-            account_no: if all_digits { compact.parse().ok() } else { None },
-            name_a,
-            name_b,
-            limit: self.limit.unwrap_or(20).clamp(1, 50),
-        })
+        Ok(parse_query(q, self.limit.unwrap_or(20).clamp(1, 50)))
     }
 }
 
@@ -474,6 +488,15 @@ mod tests {
     #[test]
     fn like_prefix_escapes_wildcards_and_backslash() {
         assert_eq!(like_prefix("A%b_c\\d"), "a\\%b\\_c\\\\d");
+    }
+
+    #[test]
+    fn membership_numbers_are_searchable() {
+        let t = parse_query(" bh-100 ", 10);
+        assert_eq!(t.membership_number.as_deref(), Some("BH-100"));
+        assert_eq!(t.id_number, None, "hyphen: not an ID number");
+        let t = parse_query("smith jo", 10);
+        assert_eq!(t.membership_number, None, "no digit: a name, not a membership number");
     }
 
     #[test]

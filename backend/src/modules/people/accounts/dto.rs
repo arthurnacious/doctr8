@@ -45,6 +45,7 @@ pub struct AccountPatient {
     pub first_name: String,
     pub last_name: String,
     pub dependant_code: String,
+    pub status: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Deserialize)]

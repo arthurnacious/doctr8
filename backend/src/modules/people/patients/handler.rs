@@ -6,7 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use super::{
-    dto::{CreatePatientFileRequest, PatientResponse, UpdatePatientRequest},
+    dto::{CreatePatientFileRequest, PatientPage, PatientResponse, PatientSearchRequest, SetStatusRequest, UpdatePatientRequest},
     service::PatientsService,
 };
 use crate::{
@@ -37,4 +37,21 @@ pub async fn update(
     Json(req): Json<UpdatePatientRequest>,
 ) -> AppResult<Json<PatientResponse>> {
     Ok(Json(svc.update(&auth, id, req).await?))
+}
+
+pub async fn search(
+    State(svc): State<PatientsService>,
+    auth: Require<perm::PatientsView>,
+    Json(req): Json<PatientSearchRequest>,
+) -> AppResult<Json<PatientPage>> {
+    Ok(Json(svc.search(&auth, req).await?))
+}
+
+pub async fn set_status(
+    State(svc): State<PatientsService>,
+    auth: Require<perm::PatientsManage>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetStatusRequest>,
+) -> AppResult<Json<PatientResponse>> {
+    Ok(Json(svc.set_status(&auth, id, req).await?))
 }

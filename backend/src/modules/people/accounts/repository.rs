@@ -61,7 +61,7 @@ pub async fn lock(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid) -> Result<
 
 pub async fn patients(conn: &mut PgConnection, tenant_id: Uuid, account_id: Uuid) -> Result<Vec<AccountPatient>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT pt.id AS patient_id, pt.person_id, p.first_name, p.last_name, pt.dependant_code
+        "SELECT pt.id AS patient_id, pt.person_id, p.first_name, p.last_name, pt.dependant_code, pt.status
            FROM patients pt
            JOIN persons p ON p.tenant_id = pt.tenant_id AND p.id = pt.person_id
           WHERE pt.tenant_id = $1 AND pt.account_id = $2

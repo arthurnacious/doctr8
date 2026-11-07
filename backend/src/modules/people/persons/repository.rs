@@ -112,6 +112,11 @@ pub async fn search(
                      SELECT 1 FROM patients pt
                        JOIN accounts a ON a.tenant_id = pt.tenant_id AND a.id = pt.account_id
                       WHERE pt.tenant_id = p.tenant_id AND pt.person_id = p.id AND a.account_no = $3))
+               OR ($7::text IS NOT NULL AND EXISTS (
+                     SELECT 1 FROM patients pt
+                       JOIN accounts a ON a.tenant_id = pt.tenant_id AND a.id = pt.account_id
+                       JOIN medical_aid_memberships m ON m.tenant_id = a.tenant_id AND m.id = a.membership_id
+                      WHERE pt.tenant_id = p.tenant_id AND pt.person_id = p.id AND m.membership_number = $7))
                OR ($4::text IS NOT NULL AND $5::text IS NULL AND (
                      lower(p.last_name) LIKE $4 || '%'
                   OR lower(p.first_name) LIKE $4 || '%'
@@ -130,6 +135,7 @@ pub async fn search(
     .bind(&t.name_a)
     .bind(&t.name_b)
     .bind(t.limit)
+    .bind(&t.membership_number)
     .fetch_all(conn)
     .await
 }

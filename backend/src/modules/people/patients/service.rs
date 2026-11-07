@@ -4,8 +4,9 @@ use uuid::Uuid;
 
 use super::{
     dto::{
-        CreatePatientFileRequest, MedicalAidSource, Party, PatientResponse, PersonSource,
-        UpdatePatientRequest,
+        CreatePatientFileRequest, MainMemberRef, MedicalAidSource, Party, PatientListItem, PatientPage,
+        PatientResponse, PatientSearchRequest, PersonSource, SetStatusRequest, UpdatePatientRequest,
+        mask_id_number,
     },
     repository as repo,
 };
@@ -43,6 +44,55 @@ pub struct PatientsService {
 impl PatientsService {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// The patient list: one search box, paged on the server, ID numbers masked.
+    pub async fn search(&self, actor: &TenantUser, req: PatientSearchRequest) -> AppResult<PatientPage> {
+        let s = req.validate()?;
+        let mut tx = db::begin(&self.pool, actor.scope()).await?;
+        let total = repo::search_count(&mut tx, actor.tenant_id, &s).await?;
+        let rows = if total == 0 { Vec::new() } else { repo::search_page(&mut tx, actor.tenant_id, &s).await? };
+        tx.commit().await?;
+        Ok(PatientPage {
+            items: rows
+                .into_iter()
+                .map(|r| PatientListItem {
+                    id_number_masked: r.id_number.as_deref().map(|n| mask_id_number(r.id_type.as_deref(), n)),
+                    main_member: match (r.main_member_person_id, r.main_member_first_name, r.main_member_last_name) {
+                        (Some(person_id), Some(first_name), Some(last_name)) => Some(MainMemberRef { person_id, first_name, last_name }),
+                        _ => None,
+                    },
+                    patient_id: r.patient_id,
+                    person_id: r.person_id,
+                    account_id: r.account_id,
+                    account_no: r.account_no,
+                    dependant_code: r.dependant_code,
+                    status: r.status,
+                    title: r.title,
+                    first_name: r.first_name,
+                    last_name: r.last_name,
+                    date_of_birth: r.date_of_birth,
+                    scheme_name: r.scheme_name,
+                    plan_name: r.plan_name,
+                    membership_number: r.membership_number,
+                })
+                .collect(),
+            total,
+            page: s.page,
+            page_size: s.page_size,
+        })
+    }
+
+    /// Mark a patient active or inactive. Nothing is removed from the file.
+    pub async fn set_status(&self, actor: &TenantUser, id: Uuid, req: SetStatusRequest) -> AppResult<PatientResponse> {
+        let t = actor.tenant_id;
+        let mut tx = db::begin(&self.pool, actor.scope()).await?;
+        if !repo::set_status(&mut tx, t, id, req.status.as_str()).await? {
+            return Err(AppError::NotFound("patient"));
+        }
+        let patient = find(&mut tx, t, id).await?;
+        tx.commit().await?;
+        Ok(patient)
     }
 
     pub async fn get(&self, actor: &TenantUser, id: Uuid) -> AppResult<PatientResponse> {

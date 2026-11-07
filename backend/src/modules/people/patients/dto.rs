@@ -7,10 +7,153 @@ use crate::{
         error::{AppError, AppResult},
         validation,
     },
-    modules::people::persons::dto::{NewPerson, PersonInput},
+    modules::people::persons::dto::{MAX_QUERY_CHARS, NewPerson, PersonInput, SearchTerms, parse_query},
 };
 
 pub const MAX_PATIENTS_PER_REQUEST: usize = 20;
+pub const DEFAULT_PAGE_SIZE: i64 = 25;
+pub const MAX_PAGE_SIZE: i64 = 100;
+
+// -----------------------------------------------------------------------------
+// POST /patients/search — the patient list. POST so names and ID numbers
+// stay out of URLs (and therefore out of proxy and access logs).
+// -----------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusFilter {
+    #[default]
+    Active,
+    Inactive,
+    All,
+}
+
+impl StatusFilter {
+    pub const fn as_db(self) -> Option<&'static str> {
+        match self {
+            Self::Active => Some("active"),
+            Self::Inactive => Some("inactive"),
+            Self::All => None,
+        }
+    }
+}
+
+#[derive(Deserialize, Default)]
+pub struct PatientSearchRequest {
+    /// Name, file number, ID/passport number or membership number. Empty
+    /// lists everyone (paged).
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub status: StatusFilter,
+    /// 1-based.
+    #[serde(default)]
+    pub page: Option<i64>,
+    #[serde(default)]
+    pub page_size: Option<i64>,
+}
+
+pub struct PatientSearch {
+    pub terms: Option<SearchTerms>,
+    pub status: StatusFilter,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+impl PatientSearch {
+    pub fn offset(&self) -> i64 {
+        (self.page - 1) * self.page_size
+    }
+}
+
+impl PatientSearchRequest {
+    pub fn validate(self) -> AppResult<PatientSearch> {
+        let page_size = self.page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
+        let page = self.page.unwrap_or(1).clamp(1, 100_000);
+        let terms = match self.query.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+            None => None,
+            Some(q) if q.chars().count() > MAX_QUERY_CHARS => {
+                return Err(AppError::validation("query is too long"));
+            }
+            Some(q) => Some(parse_query(q, page_size)),
+        };
+        Ok(PatientSearch { terms, status: self.status, page, page_size })
+    }
+}
+
+#[derive(Serialize)]
+pub struct PatientListItem {
+    pub patient_id: Uuid,
+    pub person_id: Uuid,
+    pub account_id: Uuid,
+    pub account_no: i64,
+    pub dependant_code: String,
+    pub status: String,
+    pub title: Option<String>,
+    pub first_name: String,
+    pub last_name: String,
+    pub date_of_birth: Option<NaiveDate>,
+    /// Never the full number in a list: e.g. 790302******1.
+    pub id_number_masked: Option<String>,
+    pub scheme_name: Option<String>,
+    pub plan_name: Option<String>,
+    pub membership_number: Option<String>,
+    pub main_member: Option<MainMemberRef>,
+}
+
+#[derive(Serialize)]
+pub struct MainMemberRef {
+    pub person_id: Uuid,
+    pub first_name: String,
+    pub last_name: String,
+}
+
+#[derive(Serialize)]
+pub struct PatientPage {
+    pub items: Vec<PatientListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+/// Mask an identity number for lists. SA ID: first 6 digits (date of birth)
+/// and the last digit, e.g. 790302******1. Anything else: first and last
+/// two characters.
+pub fn mask_id_number(id_type: Option<&str>, number: &str) -> String {
+    let chars: Vec<char> = number.chars().collect();
+    let n = chars.len();
+    let (head, tail) = match id_type {
+        Some("sa_id") if n == 13 => (6, 1),
+        _ if n > 4 => (2, 2),
+        _ => (0, 0),
+    };
+    chars
+        .iter()
+        .enumerate()
+        .map(|(i, c)| if i < head || i >= n - tail { *c } else { '*' })
+        .collect()
+}
+
+#[derive(Deserialize)]
+pub struct SetStatusRequest {
+    pub status: PatientStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatientStatus {
+    Active,
+    Inactive,
+}
+
+impl PatientStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Inactive => "inactive",
+        }
+    }
+}
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct PatientResponse {
@@ -19,6 +162,8 @@ pub struct PatientResponse {
     pub account_id: Uuid,
     pub account_no: i64,
     pub dependant_code: String,
+    /// active | inactive
+    pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -217,6 +362,52 @@ mod tests {
 
     fn err(v: Value) -> String {
         validate(v).err().expect("expected a validation error").to_string()
+    }
+
+    fn search(v: Value) -> PatientSearch {
+        serde_json::from_value::<PatientSearchRequest>(v).unwrap().validate().unwrap()
+    }
+
+    #[test]
+    fn search_defaults() {
+        let s = search(json!({}));
+        assert!(s.terms.is_none(), "empty query lists everyone");
+        assert_eq!((s.status, s.page, s.page_size, s.offset()), (StatusFilter::Active, 1, DEFAULT_PAGE_SIZE, 0));
+        assert!(search(json!({"query": "   "})).terms.is_none());
+    }
+
+    #[test]
+    fn search_paging_is_bounded() {
+        let s = search(json!({"page": 3, "page_size": 10}));
+        assert_eq!(s.offset(), 20);
+        let s = search(json!({"page": 0, "page_size": 10_000}));
+        assert_eq!((s.page, s.page_size), (1, MAX_PAGE_SIZE));
+        assert!(serde_json::from_value::<PatientSearchRequest>(json!({"query": "x".repeat(101)})).unwrap().validate().is_err());
+    }
+
+    #[test]
+    fn search_status_filter() {
+        assert_eq!(search(json!({"status": "inactive"})).status.as_db(), Some("inactive"));
+        assert_eq!(search(json!({"status": "all"})).status.as_db(), None);
+        assert!(serde_json::from_value::<PatientSearchRequest>(json!({"status": "deleted"})).is_err());
+    }
+
+    #[test]
+    fn search_query_is_interpreted_every_way() {
+        let t = search(json!({"query": "BH-100"})).terms.unwrap();
+        assert_eq!(t.membership_number.as_deref(), Some("BH-100"));
+        let t = search(json!({"query": "0042"})).terms.unwrap();
+        assert_eq!(t.account_no, Some(42));
+        assert_eq!(t.membership_number.as_deref(), Some("0042"));
+    }
+
+    #[test]
+    fn id_masking() {
+        assert_eq!(mask_id_number(Some("sa_id"), "7903025009081"), "790302******1");
+        assert_eq!(mask_id_number(Some("passport"), "AB1234567"), "AB*****67");
+        assert_eq!(mask_id_number(Some("other"), "1234"), "****");
+        assert_eq!(mask_id_number(Some("sa_id"), "123"), "***", "malformed SA ID never leaks");
+        assert_eq!(mask_id_number(None, ""), "");
     }
 
     #[test]

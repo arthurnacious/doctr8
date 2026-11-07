@@ -147,6 +147,28 @@ req POST /persons/search "$T" '{"query":"01"}'; check "search by account number"
 check "search results omit ID numbers" null "$(jq -r '.[0].id_number' <<<"$BODY")"
 req POST /persons/search "$T" '{"query":"%_"}'; check "LIKE wildcards are literal" 0 "$(jq length <<<"$BODY")"
 
+echo "== patient list (POST /patients/search)"
+req POST /patients/search "$T" '{"query":"nkosi"}'
+check "name search finds every Nkosi patient row" 3 "$(j .total)"
+check "ID numbers masked in the list" "900215******8" "$(jq -r '[.items[] | select(.first_name=="Thandi")][0].id_number_masked' <<<"$BODY")"
+check "list never carries a full ID number" 0 "$(grep -c 9002150123088 <<<"$BODY")"
+req POST /patients/search "$T" '{"query":"nkosi","page":2,"page_size":1}'
+check "paged on the server" "1 3 2" "$(j '"\(.items | length) \(.total) \(.page)"')"
+req POST /patients/search "$T" '{"query":"FAM-1"}'
+check "membership number search" 3 "$(j .total)"
+check "medical aid, plan and main member in the row" "Test Health Classic Naledi Mokoena" \
+  "$(j '.items[0] | "\(.scheme_name) \(.plan_name) \(.main_member.first_name) \(.main_member.last_name)"')"
+req POST /persons/search "$T" '{"query":"fam-1"}'; check "person search also matches membership numbers" 3 "$(jq length <<<"$BODY")"
+req POST /patients/search "$T" '{"query":"0001"}'; check "file number search" "1" "$(j '.items[0].account_no')"
+LWAZI=$($PSQL -tAc "SELECT pt.id FROM patients pt JOIN persons p ON p.id = pt.person_id WHERE p.first_name = 'Lwazi'")
+req PUT /patients/$LWAZI/status "$T" '{"status":"inactive"}'; check "patient marked inactive" inactive "$(j .status)"
+req POST /patients/search "$T" '{"query":"nkosi"}'; check "inactive hidden by default" 2 "$(j .total)"
+req POST /patients/search "$T" '{"query":"nkosi","status":"inactive"}'; check "inactive filter" Lwazi "$(j '.items[0].first_name')"
+req POST /patients/search "$T" '{"query":"nkosi","status":"all"}'; check "all filter" 3 "$(j .total)"
+req GET /accounts/$ACC_FAM "$T"; check "file view shows each patient's status" active "$(j '.patients[0].status')"
+req PUT /patients/$LWAZI/status "$T" '{"status":"active"}'; check "reactivated" active "$(j .status)"
+req POST /patients/search "$T" '{}'; check "empty query lists everyone, paged" 25 "$(j .page_size)"
+
 echo "== isolation"
 req POST /users "" '{"email":"other@clinic.co.za","full_name":"Dr Other","password":"another good password"}'
 req POST /auth/login "" '{"email":"other@clinic.co.za","password":"another good password"}' "$J/other"; O=$(j .access_token)
@@ -155,6 +177,7 @@ req POST /auth/switch-practice "" "{\"tenant_id\":\"$Q\"}" "$J/other"; O=$(j .ac
 req GET /persons/$PERSON1 "$O"; check "other practice can't read person -> 404" 404 $CODE
 req GET /accounts/$ACC1 "$O"; check "other practice can't read account -> 404" 404 $CODE
 req POST /persons/search "$O" '{"query":"nkosi"}'; check "other practice search finds nothing" 0 "$(jq length <<<"$BODY")"
+req POST /patients/search "$O" '{"query":"nkosi"}'; check "other practice's patient list is separate" 0 "$(j .total)"
 req POST /accounts/$ACC_FAM/patients "$O" '{"person_id":"'$EXTRA'","dependant_code":"08"}'
 check "other practice can't add to account -> 404" 404 $CODE
 req POST /patient-files "$O" '{"patients":[{"person":{"existing":"'$PERSON1'"}}],"guarantor":{"patient":0}}'
