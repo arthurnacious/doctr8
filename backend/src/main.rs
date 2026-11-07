@@ -5,6 +5,8 @@ mod state;
 
 #[cfg(test)]
 mod route_tests;
+#[cfg(test)]
+mod ws_tests;
 
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
@@ -33,14 +35,44 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::from_env()?;
 
+    let role = config.database_role.clone();
     let pool = PgPoolOptions::new()
         .max_connections(config.db_max_connections)
+        .after_connect(move |conn, _meta| {
+            let role = role.clone();
+            Box::pin(async move {
+                if let Some(role) = role {
+                    // Equivalent to SET ROLE, but parameterised.
+                    sqlx::query("SELECT set_config('role', $1, false)").bind(role).execute(conn).await?;
+                }
+                Ok(())
+            })
+        })
         .connect(&config.database_url)
         .await
         .context("connecting to database")?;
 
+    // Refuse to run with row-level security bypassed: tenant isolation
+    // depends on it.
+    let (user, bypasses): (String, bool) = sqlx::query_as(
+        "SELECT current_user::text, rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user",
+    )
+    .fetch_one(&pool)
+    .await?;
+    if bypasses {
+        anyhow::bail!(
+            "the API is running as database role {user}, which bypasses row-level security; \
+             set DATABASE_ROLE=doctr8_app (or connect as doctr8_app)"
+        );
+    }
+    tracing::info!(role = %user, "database connected");
+
     // Fail fast if the Rust Permission enum and the permissions table disagree.
     common::permission::verify_catalogue(&pool).await?;
+
+    // One LISTEN connection per process fans committed events out to sockets.
+    let events = common::ws::EventBus::new();
+    tokio::spawn(events.clone().listen(pool.clone()));
 
     let bind_addr = config.bind_addr.clone();
     // Spans record method + path only. Query strings and headers are never
@@ -49,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info_span!("http", method = %req.method(), path = %req.uri().path())
     });
     let app = modules::router()
-        .with_state(AppState::new(pool, config))
+        .with_state(AppState::with_events(pool, config, events))
         .layer(trace);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)

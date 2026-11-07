@@ -158,6 +158,18 @@ pub fn membership_number(value: &str) -> AppResult<String> {
     Ok(v)
 }
 
+/// Escape LIKE wildcards (`%`, `_`, `\\`) so user input matches literally.
+pub fn like_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    for c in value.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// For PATCH fields that can be cleared: absent → `None`, `null` →
 /// `Some(None)`, value → `Some(Some(v))`. Use with `#[serde(default)]`.
 pub fn double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -363,6 +375,13 @@ mod edge_cases {
         assert!(membership_number(&"1".repeat(31)).is_err());
         assert!(membership_number("   ").is_err());
         assert!(membership_number("12#3").is_err());
+    }
+
+    #[test]
+    fn like_escape_makes_wildcards_literal() {
+        assert_eq!(like_escape("J06%"), "J06\\%");
+        assert_eq!(like_escape("a_b\\c"), "a\\_b\\\\c");
+        assert_eq!(like_escape("plain"), "plain");
     }
 
     #[test]

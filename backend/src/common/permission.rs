@@ -64,6 +64,11 @@ define_permissions! {
     PatientsManage => "patients.manage" : "Register patients and edit their details",
     AccountsView   => "accounts.view"   : "View accounts and medical aid details",
     AccountsManage => "accounts.manage" : "Edit accounts and medical aid memberships",
+    BillingView    => "billing.view"    : "View invoices, claims, transactions and statements",
+    BillingManage  => "billing.manage"  : "Create invoices and credit notes; record claims and claim status",
+    PaymentsManage => "payments.manage" : "Record patient payments, refunds and medical aid remittances",
+    JournalsManage => "journals.manage" : "Post journals, liability transfers and reversals; edit journal reasons",
+    ProvidersManage => "providers.manage" : "Manage providers and service centres",
 }
 
 impl Serialize for Permission {
@@ -152,10 +157,17 @@ mod tests {
         let mut keys = BTreeSet::new();
         for file in files {
             let sql = std::fs::read_to_string(&file).unwrap();
-            for (_, rest) in sql.match_indices("INSERT INTO permissions").map(|(i, _)| sql.split_at(i)) {
-                let stmt = &rest[..rest.find(';').unwrap()];
-                for chunk in stmt.split("('").skip(1) {
-                    keys.insert(chunk[..chunk.find('\'').unwrap()].to_owned());
+            // Line-based: descriptions may contain ';', so a statement ends
+            // at a line that *ends* with ';'. Each value row starts "('key',".
+            let mut inside = false;
+            for line in sql.lines().map(str::trim) {
+                if line.starts_with("INSERT INTO permissions") {
+                    inside = true;
+                } else if inside && let Some(rest) = line.strip_prefix("('") {
+                    keys.insert(rest[..rest.find('\'').unwrap()].to_owned());
+                }
+                if inside && line.ends_with(';') {
+                    inside = false;
                 }
             }
         }

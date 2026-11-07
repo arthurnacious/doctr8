@@ -50,6 +50,17 @@ pub async fn set_scope(conn: &mut PgConnection, scope: Scope) -> Result<(), sqlx
     Ok(())
 }
 
+/// Take a transaction-scoped advisory lock on an entity (released at
+/// commit/rollback). Uses the same key function as the database triggers,
+/// so API code and triggers serialise on the same lock.
+pub async fn lock(conn: &mut PgConnection, id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(app.lock_key($1))")
+        .bind(id)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

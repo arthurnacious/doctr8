@@ -6,6 +6,10 @@ use anyhow::{Context, bail};
 pub struct Config {
     pub bind_addr: String,
     pub database_url: String,
+    /// Role to switch to on every connection (`SET ROLE`). Lets the API log
+    /// in with a superuser's credentials while still running as the
+    /// RLS-enforced `doctr8_app`. Leave unset when logging in as doctr8_app.
+    pub database_role: Option<String>,
     pub db_max_connections: u32,
     pub jwt_secret: String,
     pub jwt_issuer: String,
@@ -36,6 +40,7 @@ impl Config {
         let config = Self {
             bind_addr: optional("BIND_ADDR", "0.0.0.0:3000"),
             database_url: required("DATABASE_URL")?,
+            database_role: get("DATABASE_ROLE").filter(|r| !r.trim().is_empty()),
             db_max_connections: parse(&get, "DB_MAX_CONNECTIONS", 10)?,
             jwt_secret,
             jwt_issuer: optional("JWT_ISSUER", "doctr8"),
@@ -94,6 +99,7 @@ mod tests {
         assert_eq!(c.refresh_token_ttl_secs, 14 * 24 * 3600);
         assert_eq!(c.session_ttl_secs, 30 * 24 * 3600);
         assert!(c.cookie_secure, "cookies must be Secure unless explicitly disabled");
+        assert_eq!(c.database_role, None);
     }
 
     #[test]
@@ -102,6 +108,12 @@ mod tests {
         assert_eq!(c.bind_addr, "127.0.0.1:9");
         assert_eq!(c.access_token_ttl_secs, 60);
         assert!(!c.cookie_secure);
+    }
+
+    #[test]
+    fn database_role() {
+        assert_eq!(with(&[("DATABASE_ROLE", "doctr8_app")]).unwrap().database_role.as_deref(), Some("doctr8_app"));
+        assert_eq!(with(&[("DATABASE_ROLE", "  ")]).unwrap().database_role, None, "blank means unset");
     }
 
     #[test]

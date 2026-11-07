@@ -21,6 +21,10 @@ backend/
     modules/
       access/   auth, tenants, users, roles (mod/handler/service/dto/repository)
       people/   persons, memberships, accounts, patients
+      coding/   ICD-10, tariff, NAPPI and modifier reference (global)
+      billing/  providers, invoices, transactions, statements
+    common/ws/  WebSocket endpoint, event bus, per-connection filtering
+  examples/     ws_probe (WebSocket client for testing)
   tests/e2e/    end-to-end suite
 frontend/       (coming)
 ```
@@ -56,36 +60,33 @@ frontend/       (coming)
 
 ## Database
 
-Two roles, so the API can never bypass row-level security:
+Local development uses one Postgres login (see `backend/.env`):
 
-| Role | Used by | Privileges |
-|------|---------|------------|
-| `doctr8_owner` | migrations | owns the database, `BYPASSRLS`, `CREATEROLE` |
-| `doctr8_app` | the API | `NOSUPERUSER NOBYPASSRLS`, DML grants only |
+| Setting | Value |
+|---------|-------|
+| host / port | `127.0.0.1` / `5432` |
+| user | `postgres` |
+| dev database | `doctr8` |
+| test database | `doctr8_test` (dropped and recreated by `tests/e2e/run.sh`) |
 
-First-time setup (as a Postgres superuser):
+`postgres` is a superuser, which bypasses row-level security. The API therefore
+switches every connection to the `doctr8_app` role (`DATABASE_ROLE=doctr8_app`,
+created by migration 0001 as `NOLOGIN NOSUPERUSER NOBYPASSRLS`) and **refuses
+to start** if it would run with RLS bypassed. In production, prefer logging in
+as a dedicated `doctr8_app` login rather than switching roles from a superuser.
+
+First-time setup:
 
 ```sh
-psql -U postgres <<'SQL'
-CREATE ROLE doctr8_owner LOGIN CREATEROLE BYPASSRLS PASSWORD '<owner password>';
-CREATE DATABASE doctr8 OWNER doctr8_owner;
-REVOKE ALL ON DATABASE doctr8 FROM PUBLIC;
-SQL
-
+psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE doctr8'
 cd backend
-cp .env.example .env          # then fill in passwords and JWT_SECRET
-cargo run -- migrate          # applies migrations as doctr8_owner; creates doctr8_app
-
-psql -U postgres -d doctr8 <<'SQL'
-ALTER ROLE doctr8_app LOGIN PASSWORD '<app password>';
-GRANT CONNECT ON DATABASE doctr8 TO doctr8_app;
-SQL
-
+cp .env.example .env          # then fill in the password and JWT_SECRET
+cargo run -- migrate          # applies migrations via MIGRATION_DATABASE_URL
 cargo run                     # API on BIND_ADDR, reading backend/.env
 ```
 
-`cargo run -- migrate` uses `MIGRATION_DATABASE_URL` and the same
-`_sqlx_migrations` table as `sqlx migrate run`, so either works.
+`cargo run -- migrate` uses the same `_sqlx_migrations` table as
+`sqlx migrate run`, so either works.
 
 ## Testing
 
@@ -95,8 +96,9 @@ cargo test              # unit tests
 tests/e2e/run.sh        # end-to-end: throwaway Postgres + migrations + API + curl checks
 ```
 
-`run.sh` needs `initdb`, `pg_ctl`, `psql`, `curl` and `jq` on `PATH`. The API
-runs as `doctr8_app`, so row-level security is exercised for real.
+`run.sh` needs `psql`, `curl` and `jq` on `PATH` and uses `TEST_DATABASE_URL`
+(it refuses any database whose name doesn't end in `_test`). The API runs as
+`doctr8_app`, so row-level security is exercised for real.
 
 ## Patient data
 
@@ -114,9 +116,27 @@ was opened and keeps it; changing the practice's mode only affects new
 accounts. Rules are checked in `people::accounts::service::check_file_rules`
 and re-checked at commit by deferred triggers (`app.validate_account`).
 
+## Billing ledger
+
+Money is integer cents. Every movement is a `transaction` with signed
+`transaction_entries` per invoice and bucket (`medical_aid` | `patient`);
+what each party owes is the sum of entries. Posted money, invoices and
+credit notes are immutable (triggers + grants); corrections are new
+transactions (reversal, journal, credit note). Shapes are re-validated at
+COMMIT by deferred triggers (`app.validate_transaction`, `app.validate_invoice`,
+`app.validate_credit_note`).
+
+## Real-time
+
+`GET /ws` — send `{"type":"auth","token":"<access JWT>"}` first (and again
+after each refresh), then `{"type":"subscribe","account_id":"…"}` for open
+account screens. Services publish with `pg_notify` inside their transaction,
+so events are delivered only after COMMIT. Events carry ids only; clients
+refetch over REST. Protocol details: `backend/src/common/ws/mod.rs`.
+
 ## Domains
 
 - [x] Practices & access — schema + `backend/src/modules/access`
 - [x] Patients & medical aid — `0002_patients_and_medical_aid.sql` + `backend/src/modules/people`
+- [x] Billing & statements — `0003_billing.sql` + `backend/src/modules/{billing,coding}`
 - [ ] Booking
-- [ ] Billing

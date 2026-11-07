@@ -22,6 +22,7 @@ pub fn config() -> Config {
         bind_addr: "127.0.0.1:0".into(),
         // Nothing listens on port 1: any test that reaches the database fails fast.
         database_url: "postgres://doctr8_app:x@127.0.0.1:1/doctr8".into(),
+        database_role: None,
         db_max_connections: 1,
         jwt_secret: SECRET.into(),
         jwt_issuer: ISSUER.into(),

@@ -73,6 +73,45 @@ fn routes() -> Vec<(Method, String, Guard)> {
         r(Method::POST, "/patient-files", Requires(P::PatientsManage)),
         r(Method::GET, "/patients/{id}", Requires(P::PatientsView)),
         r(Method::PATCH, "/patients/{id}", Requires(P::PatientsManage)),
+        // coding reference
+        r(Method::GET, "/coding/icd10", InPractice),
+        r(Method::GET, "/coding/tariffs", InPractice),
+        r(Method::GET, "/coding/nappi", InPractice),
+        r(Method::GET, "/coding/modifiers", InPractice),
+        // billing: providers
+        r(Method::GET, "/providers", Requires(P::BillingView)),
+        r(Method::POST, "/providers", Requires(P::ProvidersManage)),
+        r(Method::GET, "/providers/{id}", Requires(P::BillingView)),
+        r(Method::PUT, "/providers/{id}", Requires(P::ProvidersManage)),
+        r(Method::GET, "/service-centres", Requires(P::BillingView)),
+        r(Method::POST, "/service-centres", Requires(P::ProvidersManage)),
+        r(Method::PUT, "/service-centres/{id}", Requires(P::ProvidersManage)),
+        // billing: invoices and claims
+        r(Method::POST, "/invoices", Requires(P::BillingManage)),
+        r(Method::GET, "/invoices/{id}", Requires(P::BillingView)),
+        r(Method::GET, "/accounts/{id}/invoices", Requires(P::BillingView)),
+        r(Method::POST, "/invoices/{id}/credit-notes", Requires(P::BillingManage)),
+        r(Method::POST, "/invoices/{id}/claims", Requires(P::BillingManage)),
+        r(Method::GET, "/claims", Requires(P::BillingView)),
+        r(Method::POST, "/claims/{id}/status", Requires(P::BillingManage)),
+        // billing: money
+        r(Method::GET, "/accounts/{id}/transactions", Requires(P::BillingView)),
+        r(Method::GET, "/accounts/{id}/balance", Requires(P::BillingView)),
+        r(Method::POST, "/payments", Requires(P::PaymentsManage)),
+        r(Method::POST, "/refunds", Requires(P::PaymentsManage)),
+        r(Method::POST, "/journals", Requires(P::JournalsManage)),
+        r(Method::POST, "/liability-transfers", Requires(P::JournalsManage)),
+        r(Method::GET, "/transactions/{id}", Requires(P::BillingView)),
+        r(Method::POST, "/transactions/{id}/reverse", Requires(P::JournalsManage)),
+        r(Method::GET, "/journal-reason-types", Requires(P::BillingView)),
+        r(Method::POST, "/journal-reason-types", Requires(P::JournalsManage)),
+        r(Method::PUT, "/journal-reason-types/{id}", Requires(P::JournalsManage)),
+        r(Method::GET, "/remittances", Requires(P::BillingView)),
+        r(Method::POST, "/remittances", Requires(P::PaymentsManage)),
+        r(Method::GET, "/remittances/{id}", Requires(P::BillingView)),
+        r(Method::POST, "/remittances/{id}/allocations", Requires(P::PaymentsManage)),
+        // billing: statements
+        r(Method::GET, "/accounts/{id}/statement", Requires(P::BillingView)),
     ]
 }
 
@@ -201,6 +240,29 @@ async fn malformed_bodies_and_ids_are_client_errors() {
     // `{}` is missing required fields.
     let (status, _) = send(&Method::POST, "/patient-files", t).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn posted_money_has_no_edit_or_delete_endpoints() {
+    let t = Some(token(Some(TENANT), Permission::ALL));
+    for (m, p) in [
+        (Method::DELETE, "/invoices/{id}"),
+        (Method::PATCH, "/invoices/{id}"),
+        (Method::PUT, "/invoices/{id}"),
+        (Method::DELETE, "/transactions/{id}"),
+        (Method::PATCH, "/transactions/{id}"),
+        (Method::DELETE, "/remittances/{id}"),
+    ] {
+        let (status, _) = send(&m, &p.replace("{id}", ID), t.clone()).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{m} {p}");
+    }
+}
+
+#[tokio::test]
+async fn statement_date_must_parse() {
+    let t = Some(token(Some(TENANT), &[Permission::BillingView]));
+    let (status, _) = send(&Method::GET, &format!("/accounts/{ID}/statement?as_of=yesterday"), t).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

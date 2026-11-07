@@ -21,13 +21,13 @@ req POST /tenants "$T" '{"name":"Practice A","slug":"Dr-A","pcns_number":"012 34
 A=$(jq -r .id <<<"$BODY"); check "slug normalised" dr-a "$(jq -r .slug <<<"$BODY")"
 req POST /tenants "$T" '{"name":"Other","slug":"dr-a"}'; check "duplicate slug -> 409 w/ message" "That practice address is already taken" "$(jq -r .error.message <<<"$BODY")"
 req POST /auth/switch-practice "" "{\"tenant_id\":\"$A\"}" "$J/thabo"; check "switch to A" 200 $CODE
-check "owner has all 12 perms" 12 "$(jq '.permissions|length' <<<"$BODY")"
+check "owner has all 17 perms" 17 "$(jq '.permissions|length' <<<"$BODY")"
 T=$(jq -r .access_token <<<"$BODY")
 req GET /tenants/current "$T"; check "current practice" "Practice A" "$(jq -r .name <<<"$BODY")"
 req PATCH /tenants/current "$T" '{"pcns_number":null}'; check "clear pcns via null" null "$(jq -r .pcns_number <<<"$BODY")"
 
 echo "== roles CRUD"
-req GET /permissions "$T"; check "permission catalogue" 12 "$(jq length <<<"$BODY")"
+req GET /permissions "$T"; check "permission catalogue" 17 "$(jq length <<<"$BODY")"
 req GET /roles "$T"; OWNER=$(jq -r '.[0].id' <<<"$BODY"); check "Owner role listed" "Owner" "$(jq -r '.[0].name' <<<"$BODY")"
 req POST /roles "$T" '{"name":"Reception","permissions":["members.view","roles.assign","roles.view"]}'; check "create Reception" 201 $CODE
 REC=$(jq -r .id <<<"$BODY")
@@ -55,7 +55,7 @@ req GET /roles "$L"; check "lerato lacks roles.view -> 403" 403 $CODE
 req PUT /members/$LERATO_ID/roles "$T" "{\"role_ids\":[\"$REC\",\"$OWNER\"]}"; check "owner promotes lerato" 2 "$(jq length <<<"$BODY")"
 req PUT /members/$THABO_ID/roles "$T" '{"role_ids":[]}'; check "now thabo can step down (another Owner exists)" 200 $CODE
 req PUT /members/$THABO_ID/roles "$L" "{\"role_ids\":[\"$OWNER\"]}"; check "restore thabo (lerato token still old perms -> 403)" 403 $CODE
-req POST /auth/refresh "" "" "$J/lerato"; L=$(jq -r .access_token <<<"$BODY"); check "lerato refresh picks up Owner perms" 12 "$(jq '.permissions|length' <<<"$BODY")"
+req POST /auth/refresh "" "" "$J/lerato"; L=$(jq -r .access_token <<<"$BODY"); check "lerato refresh picks up Owner perms" 17 "$(jq '.permissions|length' <<<"$BODY")"
 req PUT /members/$THABO_ID/roles "$L" "{\"role_ids\":[\"$OWNER\"]}"; check "lerato (now Owner) restores thabo" 200 $CODE
 
 echo "== tenant isolation"
