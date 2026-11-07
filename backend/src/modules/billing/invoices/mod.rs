@@ -15,6 +15,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/invoices", post(handler::create))
+        .route("/invoices/search", post(handler::search))
         .route("/invoices/{id}", get(handler::get))
         .route("/accounts/{id}/invoices", get(handler::list_for_account))
         .route("/invoices/{id}/credit-notes", post(handler::credit))

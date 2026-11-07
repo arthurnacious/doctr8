@@ -6,7 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use super::{
-    dto::{ClaimResponse, ClaimStatusRequest, ClaimsFilter, CreateInvoiceRequest, CreditNoteRequest, InvoiceResponse, InvoiceSummary, SubmitClaimRequest},
+    dto::{ClaimResponse, ClaimStatusRequest, ClaimsFilter, CreateInvoiceRequest, CreditNoteRequest, InvoiceListItem, InvoicePage, InvoiceResponse, InvoiceSearchRequest, SubmitClaimRequest},
     service::InvoicesService,
 };
 use crate::common::{error::AppResult, guard::Require, permission::perm};
@@ -27,7 +27,7 @@ pub async fn list_for_account(
     State(svc): State<InvoicesService>,
     auth: Require<perm::BillingView>,
     Path(id): Path<Uuid>,
-) -> AppResult<Json<Vec<InvoiceSummary>>> {
+) -> AppResult<Json<Vec<InvoiceListItem>>> {
     Ok(Json(svc.list_for_account(&auth, id).await?))
 }
 
@@ -64,4 +64,13 @@ pub async fn list_claims(
     Query(f): Query<ClaimsFilter>,
 ) -> AppResult<Json<Vec<ClaimResponse>>> {
     Ok(Json(svc.list_claims(&auth, f).await?))
+}
+
+/// `POST /invoices/search`: the practice's invoices, filtered and paged.
+pub async fn search(
+    State(svc): State<InvoicesService>,
+    auth: Require<perm::BillingView>,
+    Json(req): Json<InvoiceSearchRequest>,
+) -> AppResult<Json<InvoicePage>> {
+    Ok(Json(svc.search(&auth, req).await?))
 }

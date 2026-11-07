@@ -6,10 +6,10 @@ use uuid::Uuid;
 use super::{
     dto::{
         CentreRef, ClaimResponse, ClaimStatus, ClaimStatusRequest, ClaimsFilter, CreateInvoiceRequest, CreditNoteRequest,
-        CreditNoteResponse, InvoiceResponse, InvoiceSummary, LineItem, ProviderRef, SubmitClaimRequest,
-        claim_status_after_payment,
+        CreditNoteResponse, InvoiceListItem, InvoiceListPatient, InvoicePage, InvoicePatient, InvoiceResponse,
+        InvoiceSearch, InvoiceSearchRequest, LineItem, ProviderRef, SubmitClaimRequest, claim_status_after_payment,
     },
-    repository::{self as repo, ResolvedLine},
+    repository::{self as repo, ListRow, ResolvedLine},
 };
 use crate::{
     common::{
@@ -20,8 +20,10 @@ use crate::{
         ws::{Event, EventBus, EventKind},
     },
     modules::{
+        access,
         billing::{
             providers::{self, dto::{ProviderKind, ProviderResponse}},
+            statements::{self, dto::StatementPractice},
             today,
             transactions::{
                 self,
@@ -158,14 +160,28 @@ impl InvoicesService {
         Ok(out)
     }
 
-    pub async fn list_for_account(&self, actor: &TenantUser, account_id: Uuid) -> AppResult<Vec<InvoiceSummary>> {
+    pub async fn list_for_account(&self, actor: &TenantUser, account_id: Uuid) -> AppResult<Vec<InvoiceListItem>> {
         let mut tx = db::begin(&self.pool, actor.scope()).await?;
         if transactions::repository::account_billing(&mut tx, actor.tenant_id, account_id).await?.is_none() {
             return Err(AppError::NotFound("account"));
         }
-        let rows = repo::summaries_for_account(&mut tx, actor.tenant_id, account_id).await?;
+        let rows = repo::search(&mut tx, actor.tenant_id, &InvoiceSearch::for_account(account_id)).await?;
         tx.commit().await?;
-        Ok(rows)
+        Ok(rows.into_iter().map(list_item).collect())
+    }
+
+    /// The practice's invoices, newest first, filtered and paged.
+    pub async fn search(&self, actor: &TenantUser, req: InvoiceSearchRequest) -> AppResult<InvoicePage> {
+        let s = req.validate()?;
+        let mut tx = db::begin(&self.pool, actor.scope()).await?;
+        let rows = repo::search(&mut tx, actor.tenant_id, &s).await?;
+        tx.commit().await?;
+        Ok(InvoicePage {
+            total: rows.first().map_or(0, |r| r.total_count),
+            items: rows.into_iter().map(list_item).collect(),
+            page: s.page,
+            page_size: s.page_size,
+        })
     }
 
     /// Credit individual lines (fully by default, or partly). Reduces what
@@ -330,8 +346,39 @@ fn provider_ref(p: &ProviderResponse) -> ProviderRef {
     }
 }
 
+fn list_item(r: ListRow) -> InvoiceListItem {
+    InvoiceListItem {
+        treating_provider: providers::dto::display_name(r.provider_title.as_deref(), r.provider_first_name.as_deref(), &r.provider_last_name),
+        id: r.id,
+        invoice_no: r.invoice_no,
+        invoice_date: r.invoice_date,
+        account_id: r.account_id,
+        account_no: r.account_no,
+        patient: InvoiceListPatient {
+            patient_id: r.patient_id,
+            dependant_code: r.dependant_code,
+            first_name: r.first_name,
+            last_name: r.last_name,
+        },
+        treating_provider_id: r.treating_provider_id,
+        total_cents: r.total_cents,
+        credited_cents: r.credited_cents,
+        medical_aid_due_cents: r.medical_aid_due_cents,
+        patient_due_cents: r.patient_due_cents,
+        claim_status: r.claim_status,
+    }
+}
+
 pub async fn load(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid) -> AppResult<InvoiceResponse> {
     let inv = repo::find(conn, tenant_id, id).await?.ok_or(AppError::NotFound("invoice"))?;
+    let account = people::accounts::repository::find(conn, tenant_id, inv.account_id).await?.ok_or(AppError::NotFound("account"))?;
+    let patient = people::patients::repository::find(conn, tenant_id, inv.patient_id).await?.ok_or(AppError::NotFound("patient"))?;
+    let person = people::persons::repository::find(conn, tenant_id, patient.person_id).await?.ok_or(AppError::NotFound("person"))?;
+    let medical_aid = statements::service::medical_aid_of(conn, tenant_id, &account).await?;
+    let tenant = access::tenants::repository::find(conn, tenant_id).await?.ok_or(AppError::NotFound("practice"))?;
+    let ledger = statements::service::ledger_rows(conn, tenant_id, inv.account_id, today()).await?;
+    let ledger: Vec<_> = ledger.into_iter().filter(|r| r.invoice_id == Some(id)).collect();
+    let posted = statements::service::group_lines(&ledger, today(), true).remove(&Some(id)).unwrap_or_default();
     let treating = providers::service::find(conn, tenant_id, inv.treating_provider_id).await?;
     let referring = match inv.referring_provider_id {
         Some(r) => Some(providers::service::find(conn, tenant_id, r).await?),
@@ -354,7 +401,20 @@ pub async fn load(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid) -> AppResu
         id: inv.id,
         invoice_no: inv.invoice_no,
         account_id: inv.account_id,
+        account_no: account.account_no,
         patient_id: inv.patient_id,
+        patient: InvoicePatient {
+            patient_id: inv.patient_id,
+            dependant_code: patient.dependant_code,
+            title: person.title,
+            first_name: person.first_name,
+            last_name: person.last_name,
+            date_of_birth: person.date_of_birth,
+            sex: person.sex,
+        },
+        medical_aid,
+        practice: StatementPractice { name: tenant.name, pcns_number: tenant.pcns_number, details: tenant.details },
+        transactions: posted,
         invoice_date: inv.invoice_date,
         treating_provider: provider_ref(&treating),
         referring_provider: referring.as_ref().map(provider_ref),

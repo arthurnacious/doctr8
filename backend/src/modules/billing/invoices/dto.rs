@@ -11,7 +11,11 @@ use crate::{
         validation,
     },
     modules::{
-        billing::{providers::dto::place_of_service, transactions::dto::MAX_AMOUNT_CENTS},
+        billing::{
+            providers::dto::place_of_service,
+            statements::dto::{StatementLine, StatementMedicalAid, StatementPractice},
+            transactions::dto::MAX_AMOUNT_CENTS,
+        },
         coding::dto::{DEFAULT_CODE_SET, normalise_icd10},
     },
 };
@@ -437,12 +441,33 @@ pub struct CreditNoteResponse {
     pub lines: Vec<CreditNoteLineResponse>,
 }
 
+/// The patient as printed on the invoice.
+#[derive(Serialize)]
+pub struct InvoicePatient {
+    pub patient_id: Uuid,
+    pub dependant_code: String,
+    pub title: Option<String>,
+    pub first_name: String,
+    pub last_name: String,
+    pub date_of_birth: Option<NaiveDate>,
+    pub sex: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct InvoiceResponse {
     pub id: Uuid,
     pub invoice_no: i64,
     pub account_id: Uuid,
+    pub account_no: i64,
     pub patient_id: Uuid,
+    pub patient: InvoicePatient,
+    /// The account's medical aid (null = private).
+    pub medical_aid: Option<StatementMedicalAid>,
+    /// Practice name, numbers, contact and banking details.
+    pub practice: StatementPractice,
+    /// Everything posted against this invoice, oldest first (reversed
+    /// entries included and flagged).
+    pub transactions: Vec<StatementLine>,
     pub invoice_date: NaiveDate,
     pub treating_provider: ProviderRef,
     pub referring_provider: Option<ProviderRef>,
@@ -458,16 +483,155 @@ pub struct InvoiceResponse {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
-pub struct InvoiceSummary {
+/// What a list filters on. Patient ids, never names, so nothing personal is
+/// searched in a URL (this is a POST body anyway).
+#[derive(Deserialize, Default)]
+pub struct InvoiceSearchRequest {
+    #[serde(default)]
+    pub from: Option<NaiveDate>,
+    #[serde(default)]
+    pub to: Option<NaiveDate>,
+    /// Treating doctor.
+    #[serde(default)]
+    pub provider_id: Option<Uuid>,
+    #[serde(default)]
+    pub patient_id: Option<Uuid>,
+    #[serde(default)]
+    pub account_id: Option<Uuid>,
+    #[serde(default)]
+    pub status: Option<DueFilter>,
+    #[serde(default)]
+    pub claim_status: Option<ClaimFilter>,
+    #[serde(default)]
+    pub page: Option<i64>,
+    #[serde(default)]
+    pub page_size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DueFilter {
+    /// Medical aid or patient still owes something (or is in credit).
+    Outstanding,
+    Settled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimFilter {
+    /// Never claimed (e.g. private accounts).
+    None,
+    Submitted,
+    Accepted,
+    Rejected,
+    Paid,
+}
+
+impl ClaimFilter {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Submitted => "submitted",
+            Self::Accepted => "accepted",
+            Self::Rejected => "rejected",
+            Self::Paid => "paid",
+        }
+    }
+}
+
+pub const DEFAULT_PAGE_SIZE: i64 = 25;
+pub const MAX_PAGE_SIZE: i64 = 100;
+
+pub struct InvoiceSearch {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    pub provider_id: Option<Uuid>,
+    pub patient_id: Option<Uuid>,
+    pub account_id: Option<Uuid>,
+    pub status: Option<DueFilter>,
+    pub claim_status: Option<ClaimFilter>,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+impl InvoiceSearch {
+    pub fn offset(&self) -> i64 {
+        (self.page - 1) * self.page_size
+    }
+
+    /// Every invoice on one account (the file's invoice list).
+    pub fn for_account(account_id: Uuid) -> Self {
+        Self {
+            from: None,
+            to: None,
+            provider_id: None,
+            patient_id: None,
+            account_id: Some(account_id),
+            status: None,
+            claim_status: None,
+            page: 1,
+            page_size: 10_000,
+        }
+    }
+}
+
+impl InvoiceSearchRequest {
+    pub fn validate(self) -> AppResult<InvoiceSearch> {
+        if let (Some(f), Some(t)) = (self.from, self.to)
+            && f > t
+        {
+            return Err(AppError::validation("from must be on or before to"));
+        }
+        let page = self.page.unwrap_or(1);
+        if page < 1 {
+            return Err(AppError::validation("page starts at 1"));
+        }
+        Ok(InvoiceSearch {
+            from: self.from,
+            to: self.to,
+            provider_id: self.provider_id,
+            patient_id: self.patient_id,
+            account_id: self.account_id,
+            status: self.status,
+            claim_status: self.claim_status,
+            page,
+            page_size: self.page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE),
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct InvoiceListPatient {
+    pub patient_id: Uuid,
+    pub dependant_code: String,
+    pub first_name: String,
+    pub last_name: String,
+}
+
+#[derive(Serialize)]
+pub struct InvoiceListItem {
     pub id: Uuid,
     pub invoice_no: i64,
     pub invoice_date: NaiveDate,
-    pub patient_id: Uuid,
+    pub account_id: Uuid,
+    pub account_no: i64,
+    pub patient: InvoiceListPatient,
+    pub treating_provider_id: Uuid,
+    pub treating_provider: String,
     pub total_cents: i64,
+    pub credited_cents: i64,
     pub medical_aid_due_cents: i64,
     pub patient_due_cents: i64,
+    /// Latest claim's status; null if never claimed.
     pub claim_status: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct InvoicePage {
+    pub items: Vec<InvoiceListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[cfg(test)]
@@ -498,6 +662,20 @@ mod tests {
 
     fn err(v: Value) -> String {
         validate(v).err().expect("expected an error").to_string()
+    }
+
+    #[test]
+    fn invoice_search_defaults_and_bounds() {
+        let s = |v: Value| serde_json::from_value::<InvoiceSearchRequest>(v).unwrap().validate();
+        let d = s(json!({})).unwrap();
+        assert_eq!((d.page, d.page_size, d.offset()), (1, DEFAULT_PAGE_SIZE, 0));
+        let p = s(json!({"page": 3, "page_size": 1000, "status": "outstanding", "claim_status": "none"})).unwrap();
+        assert_eq!((p.page_size, p.offset()), (MAX_PAGE_SIZE, 200));
+        assert_eq!(p.status, Some(DueFilter::Outstanding));
+        assert_eq!(p.claim_status.map(ClaimFilter::as_str), Some("none"));
+        assert!(s(json!({"page": 0})).is_err());
+        assert!(s(json!({"from": "2026-02-01", "to": "2026-01-01"})).is_err(), "from after to");
+        assert!(serde_json::from_value::<InvoiceSearchRequest>(json!({"status": "paid"})).is_err());
     }
 
     #[test]

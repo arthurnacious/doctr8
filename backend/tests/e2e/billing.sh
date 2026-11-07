@@ -229,6 +229,7 @@ check "addressed to the guarantor" "Bongani Mthembu Durban 4001" "$(j '.addresse
 check "medical aid and main member" "Billing Health Core BH-100 Bongani Mthembu" "$(j '.medical_aid | "\(.scheme_name) \(.plan_name) \(.membership_number) \(.main_member_name)"')"
 check "everyone on the file" "00" "$(j '[.patients[].dependant_code] | join(",")')"
 check "both invoices" 2 "$(j '.invoices | length')"
+
 check "lines with codes" "0191 0018 J06.9,Z00.0" "$(j '.invoices[0].lines[0] | "\(.tariff_code) \(.modifiers[0]) \(.icd10_codes | join(","))"')"
 check "totals" "0 9000 9000" "$(j '.totals | "\(.medical_aid_due_cents) \(.patient_due_cents) \(.total_due_cents)"')"
 check "ageing: R90 current, patient side" "0 9000" "$(j '"\(.ageing.medical_aid[0]) \(.ageing.patient[0])"')"
@@ -236,6 +237,34 @@ check "reversed write-off hidden by default" 0 "$(j '[.invoices[0].transactions[
 check "invoice transactions in order" "invoice,claim_submitted,remittance,liability_transfer" "$(j '[.invoices[0].transactions[].kind] | join(",")')"
 check "remittance line on the medical aid side" -30000 "$(j '.invoices[0].transactions[2].medical_aid_cents')"
 req GET "/accounts/$MA/statement?outstanding_only=true" "$T"; check "outstanding_only drops the paid invoice" 1 "$(j '.invoices | length')"
+echo "== invoice list and details"
+req POST /invoices/search "$T" '{}'
+check "practice-wide list, newest first" "$(j '[.items[].invoice_date] | sort | reverse | join(",")')" "$(j '[.items[].invoice_date] | join(",")')"
+check "list total" "$(j '.items | length')" "$(j .total)"
+req POST /invoices/search "$T" "{\"patient_id\":\"$BONGANI\"}"
+check "filter by patient" "Bongani Mthembu 00" "$(j '.items[0].patient | "\(.first_name) \(.last_name) \(.dependant_code)"')"
+check "filter by patient: only theirs" 0 "$(j --arg p "$BONGANI" '[.items[] | select(.patient.patient_id != $p)] | length')"
+req POST /invoices/search "$T" "{\"provider_id\":\"$REF\"}"; check "filter by treating doctor (none)" 0 "$(j .total)"
+req POST /invoices/search "$T" "{\"provider_id\":\"$DOC\",\"page_size\":1}"
+check "paged: one item, full total" "1 true" "$(j '"\(.items | length) \(.total > 1)"')"
+check "list names the doctor" "Dr A Owner" "$(j '.items[0].treating_provider')"
+req POST /invoices/search "$T" '{"status":"settled"}'
+check "settled filter: nothing owed" 0 "$(j '[.items[] | select(.medical_aid_due_cents != 0 or .patient_due_cents != 0)] | length')"
+req POST /invoices/search "$T" '{"status":"outstanding"}'
+check "outstanding filter: something owed" 0 "$(j '[.items[] | select(.medical_aid_due_cents == 0 and .patient_due_cents == 0)] | length')"
+req POST /invoices/search "$T" '{"claim_status":"none"}'
+check "never-claimed filter" 0 "$(j '[.items[] | select(.claim_status != null)] | length')"
+req POST /invoices/search "$T" "{\"from\":\"$TODAY\",\"to\":\"$TODAY\"}"
+check "date range" 0 "$(j --arg d "$TODAY" '[.items[] | select(.invoice_date != $d)] | length')"
+req POST /invoices/search "$T" '{"from":"2026-02-01","to":"2026-01-01"}'; check "from after to -> 422" 422 $CODE
+req POST /invoices/search "$R" '{}'; check "reception can't list invoices -> 403" 403 $CODE
+req GET /accounts/$MA/invoices "$T"; check "account list uses the same rows" "$MA" "$(j '.[0].account_id')"
+req GET /invoices/$INV_M "$T"
+check "invoice shows the patient" "Bongani Mthembu 00" "$(j '.patient | "\(.first_name) \(.last_name) \(.dependant_code)"')"
+check "invoice shows medical aid and main member" "Billing Health BH-100 Bongani Mthembu" "$(j '.medical_aid | "\(.scheme_name) \(.membership_number) \(.main_member_name)"')"
+check "invoice shows practice and banking" "Billing Clinic 6212345678" "$(j '.practice | "\(.name) \(.bank_account_number)"')"
+check "invoice shows its transactions" invoice "$(j '.transactions[0].kind')"
+check "invoice transactions include reversed entries, flagged" true "$(j '[.transactions[] | select(.kind == "journal")][0].reversed')"
 
 echo "== database backstop (bypassing the API)"
 out=$($PSQL -c "UPDATE transactions SET amount_cents = 1 WHERE id = '$JOURNAL'" 2>&1); contains "posted transactions can't be edited" "immutable" "$out"

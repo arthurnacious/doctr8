@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::dto::{ClaimResponse, CreditNoteLineResponse, InvoiceSummary, LineResponse, NewInvoice};
+use super::dto::{ClaimResponse, CreditNoteLineResponse, InvoiceSearch, LineResponse, NewInvoice};
 
 /// Next per-practice document number ('invoice' | 'credit_note').
 pub async fn next_number(conn: &mut PgConnection, tenant_id: Uuid, kind: &str) -> Result<i64, sqlx::Error> {
@@ -256,21 +256,83 @@ pub async fn charged_bucket(conn: &mut PgConnection, tenant_id: Uuid, invoice_id
     .await
 }
 
-pub async fn summaries_for_account(conn: &mut PgConnection, tenant_id: Uuid, account_id: Uuid) -> Result<Vec<InvoiceSummary>, sqlx::Error> {
+#[derive(sqlx::FromRow)]
+pub struct ListRow {
+    pub id: Uuid,
+    pub invoice_no: i64,
+    pub invoice_date: NaiveDate,
+    pub account_id: Uuid,
+    pub account_no: i64,
+    pub patient_id: Uuid,
+    pub dependant_code: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub treating_provider_id: Uuid,
+    pub provider_title: Option<String>,
+    pub provider_first_name: Option<String>,
+    pub provider_last_name: String,
+    pub total_cents: i64,
+    pub credited_cents: i64,
+    pub medical_aid_due_cents: i64,
+    pub patient_due_cents: i64,
+    pub claim_status: Option<String>,
+    pub total_count: i64,
+}
+
+/// Invoices matching the filters, newest first, with what's still owed.
+pub async fn search(conn: &mut PgConnection, tenant_id: Uuid, s: &InvoiceSearch) -> Result<Vec<ListRow>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT i.id, i.invoice_no, i.invoice_date, i.patient_id, i.total_cents,
-                coalesce(sum(e.amount_cents) FILTER (WHERE e.bucket = 'medical_aid'), 0)::bigint AS medical_aid_due_cents,
-                coalesce(sum(e.amount_cents) FILTER (WHERE e.bucket = 'patient'), 0)::bigint AS patient_due_cents,
-                (SELECT c.status FROM claims c WHERE c.tenant_id = i.tenant_id AND c.invoice_id = i.id
-                  ORDER BY c.created_at DESC LIMIT 1) AS claim_status
-           FROM invoices i
-           LEFT JOIN transaction_entries e ON e.tenant_id = i.tenant_id AND e.invoice_id = i.id
-          WHERE i.tenant_id = $1 AND i.account_id = $2
-          GROUP BY i.id
-          ORDER BY i.invoice_date DESC, i.invoice_no DESC",
+        "WITH found AS (
+           SELECT i.id,
+                  coalesce(sum(e.amount_cents) FILTER (WHERE e.bucket = 'medical_aid'), 0)::bigint AS medical_aid_due_cents,
+                  coalesce(sum(e.amount_cents) FILTER (WHERE e.bucket = 'patient'), 0)::bigint AS patient_due_cents
+             FROM invoices i
+             LEFT JOIN transaction_entries e ON e.tenant_id = i.tenant_id AND e.invoice_id = i.id
+            WHERE i.tenant_id = $1
+              AND ($2::date IS NULL OR i.invoice_date >= $2)
+              AND ($3::date IS NULL OR i.invoice_date <= $3)
+              AND ($4::uuid IS NULL OR i.treating_provider_id = $4)
+              AND ($5::uuid IS NULL OR i.patient_id = $5)
+              AND ($6::uuid IS NULL OR i.account_id = $6)
+            GROUP BY i.id
+         )
+         SELECT i.id, i.invoice_no, i.invoice_date, i.account_id, a.account_no, i.patient_id, pt.dependant_code,
+                pe.first_name, pe.last_name, i.treating_provider_id, pr.title AS provider_title,
+                pr.first_name AS provider_first_name, pr.last_name AS provider_last_name, i.total_cents,
+                coalesce((SELECT sum(cn.total_cents) FROM credit_notes cn
+                           WHERE cn.tenant_id = i.tenant_id AND cn.invoice_id = i.id), 0)::bigint AS credited_cents,
+                f.medical_aid_due_cents, f.patient_due_cents, c.status AS claim_status,
+                count(*) OVER () AS total_count
+           FROM found f
+           JOIN invoices i  ON i.tenant_id = $1 AND i.id = f.id
+           JOIN accounts a  ON a.tenant_id = i.tenant_id AND a.id = i.account_id
+           JOIN patients pt ON pt.tenant_id = i.tenant_id AND pt.id = i.patient_id
+           JOIN persons pe  ON pe.tenant_id = pt.tenant_id AND pe.id = pt.person_id
+           JOIN providers pr ON pr.tenant_id = i.tenant_id AND pr.id = i.treating_provider_id
+           LEFT JOIN LATERAL (
+             SELECT cl.status FROM claims cl WHERE cl.tenant_id = i.tenant_id AND cl.invoice_id = i.id
+              ORDER BY cl.created_at DESC LIMIT 1
+           ) c ON true
+          WHERE ($7::text IS NULL
+                 OR ($7 = 'outstanding' AND (f.medical_aid_due_cents <> 0 OR f.patient_due_cents <> 0))
+                 OR ($7 = 'settled' AND f.medical_aid_due_cents = 0 AND f.patient_due_cents = 0))
+            AND ($8::text IS NULL OR ($8 = 'none' AND c.status IS NULL) OR c.status = $8)
+          ORDER BY i.invoice_date DESC, i.invoice_no DESC
+          LIMIT $9 OFFSET $10",
     )
     .bind(tenant_id)
-    .bind(account_id)
+    .bind(s.from)
+    .bind(s.to)
+    .bind(s.provider_id)
+    .bind(s.patient_id)
+    .bind(s.account_id)
+    .bind(s.status.map(|d| match d {
+        super::dto::DueFilter::Outstanding => "outstanding",
+        super::dto::DueFilter::Settled => "settled",
+    }))
+    .bind(s.claim_status.map(|c| c.as_str()))
+    .bind(s.page_size)
+    .bind(s.offset())
     .fetch_all(conn)
     .await
 }

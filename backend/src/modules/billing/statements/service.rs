@@ -56,19 +56,7 @@ impl StatementsService {
         let guarantor = people::persons::repository::find(&mut tx, t, account.guarantor_person_id)
             .await?
             .ok_or(AppError::NotFound("guarantor"))?;
-        let medical_aid = match (account.membership_id, account.main_member_person_id) {
-            (Some(_), Some(main)) => {
-                let m = people::persons::repository::find(&mut tx, t, main).await?.ok_or(AppError::NotFound("main member"))?;
-                Some(StatementMedicalAid {
-                    scheme_name: account.scheme_name.clone().unwrap_or_default(),
-                    plan_name: account.plan_name.clone().unwrap_or_default(),
-                    membership_number: account.membership_number.clone().unwrap_or_default(),
-                    main_member_person_id: main,
-                    main_member_name: format!("{} {}", m.first_name, m.last_name),
-                })
-            }
-            _ => None,
-        };
+        let medical_aid = medical_aid_of(&mut tx, t, &account).await?;
         let patients = repo::patients(&mut tx, t, account_id).await?;
         let codes: HashMap<Uuid, String> = patients.iter().map(|p| (p.patient_id, p.dependant_code.clone())).collect();
 
@@ -90,27 +78,7 @@ impl StatementsService {
         let centre_names: HashMap<Uuid, String> =
             providers::repository::list_centres(&mut tx, t, true).await?.into_iter().map(|c| (c.id, c.name)).collect();
 
-        let rows = repo::ledger(&mut tx, t, account_id, as_of)
-            .await?
-            .into_iter()
-            .map(|r| {
-                Ok(LedgerRow {
-                    transaction_id: r.transaction_id,
-                    kind: TxnKind::from_db(&r.kind)?,
-                    txn_date: r.txn_date,
-                    reference: r.reference,
-                    notes: r.notes,
-                    reason_name: r.reason_name,
-                    payment_method: r.payment_method,
-                    reverses: r.reverses_transaction_id,
-                    reversed_on: r.reversed_on,
-                    invoice_id: r.invoice_id,
-                    bucket: r.bucket.as_deref().map(Bucket::from_db).transpose()?,
-                    amount_cents: r.amount_cents.unwrap_or(0),
-                    age_from: r.age_from,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let rows = ledger_rows(&mut tx, t, account_id, as_of).await?;
         tx.commit().await?;
 
         let ageing = ageing(as_of, &rows);
@@ -181,6 +149,50 @@ impl StatementsService {
             ageing,
         })
     }
+}
+
+/// The account's ledger up to `as_of`, typed.
+pub async fn ledger_rows(conn: &mut sqlx::PgConnection, tenant_id: Uuid, account_id: Uuid, as_of: NaiveDate) -> AppResult<Vec<LedgerRow>> {
+    Ok(repo::ledger(conn, tenant_id, account_id, as_of)
+        .await?
+        .into_iter()
+        .map(|r| {
+                Ok(LedgerRow {
+                    transaction_id: r.transaction_id,
+                    kind: TxnKind::from_db(&r.kind)?,
+                    txn_date: r.txn_date,
+                    reference: r.reference,
+                    notes: r.notes,
+                    reason_name: r.reason_name,
+                    payment_method: r.payment_method,
+                    reverses: r.reverses_transaction_id,
+                    reversed_on: r.reversed_on,
+                    invoice_id: r.invoice_id,
+                    bucket: r.bucket.as_deref().map(Bucket::from_db).transpose()?,
+                    amount_cents: r.amount_cents.unwrap_or(0),
+                    age_from: r.age_from,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?)
+}
+
+/// The account's medical aid as printed on statements and invoices.
+pub async fn medical_aid_of(
+    conn: &mut sqlx::PgConnection,
+    tenant_id: Uuid,
+    account: &people::accounts::repository::AccountRow,
+) -> AppResult<Option<StatementMedicalAid>> {
+    let (Some(_), Some(main)) = (account.membership_id, account.main_member_person_id) else {
+        return Ok(None);
+    };
+    let m = people::persons::repository::find(conn, tenant_id, main).await?.ok_or(AppError::NotFound("main member"))?;
+    Ok(Some(StatementMedicalAid {
+        scheme_name: account.scheme_name.clone().unwrap_or_default(),
+        plan_name: account.plan_name.clone().unwrap_or_default(),
+        membership_number: account.membership_number.clone().unwrap_or_default(),
+        main_member_person_id: main,
+        main_member_name: format!("{} {}", m.first_name, m.last_name),
+    }))
 }
 
 /// Treating, referring and assistant doctors named on these invoices.
