@@ -16,6 +16,11 @@ Multi-tenant EMR and practice management system for South African practices.
 ```
 backend/
   migrations/   SQL migrations (sqlx-style: <version>_<name>.sql)
+  src/
+    common/     errors, RLS-scoped transactions, JWT extractors, Require<P> guard
+    modules/
+      access/   auth, tenants, users, roles (mod/handler/service/dto/repository)
+  tests/e2e/    end-to-end suite
 frontend/       (coming)
 ```
 
@@ -60,9 +65,20 @@ sqlx migrate run
 `doctr8_app` is created `NOLOGIN` by the migration; grant it `LOGIN` and a
 password in your environment.
 
+## Testing
+
+```sh
+cd backend
+cargo test              # unit tests
+tests/e2e/run.sh        # end-to-end: throwaway Postgres + migrations + API + curl checks
+```
+
+`run.sh` needs `initdb`, `pg_ctl`, `psql`, `curl` and `jq` on `PATH`. The API
+runs as `doctr8_app`, so row-level security is exercised for real.
+
 ## Domains
 
-- [x] Practices & access — `backend/migrations/0001_practices_and_access.sql`
+- [x] Practices & access — schema + `backend/src/modules/access`
 - [ ] Patients
 - [ ] Booking
 - [ ] Billing
