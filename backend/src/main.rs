@@ -19,7 +19,11 @@ use crate::{config::Config, state::AppState};
 async fn main() -> anyhow::Result<()> {
     // Local development convenience: load backend/.env if present. Variables
     // already set in the environment always win.
-    let _ = dotenvy::dotenv();
+    // Look in the working directory (and its parents) first, then fall back
+    // to the crate's own backend/.env so running from the repo root works.
+    if dotenvy::dotenv().is_err() {
+        let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/.env"));
+    }
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -100,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
 /// `sqlx migrate run`.
 async fn migrate() -> anyhow::Result<()> {
     let url = std::env::var("MIGRATION_DATABASE_URL")
-        .context("MIGRATION_DATABASE_URL must be set (schema owner, not doctr8_app)")?;
+        .context("MIGRATION_DATABASE_URL must be set (a superuser, or a role with BYPASSRLS and CREATEROLE)")?;
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(&url)
