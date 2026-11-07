@@ -26,7 +26,7 @@ backend/
     common/ws/  WebSocket endpoint, event bus, per-connection filtering
   examples/     ws_probe (WebSocket client for testing)
   tests/e2e/    end-to-end suite
-frontend/       (coming)
+frontend/       TanStack Start app (see frontend/README.md)
 ```
 
 ## Multi-tenancy

@@ -1,189 +1,202 @@
-Welcome to your new TanStack Start app!
+# doctr8 frontend
 
-# Getting Started
+TanStack Start (React 19) with TanStack Router and Query, Tailwind CSS v4,
+ESLint and Prettier. It talks to the Rust/Axum API in `../backend`.
 
-To run this application:
+## Running it
 
-```bash
+Needs Node 22.12+ (`.node-version` pins 26; mise picks it up) and the API
+running on `127.0.0.1:3000` (see `../backend/README.md`).
+
+```sh
+cd frontend
 npm install
-npm run dev
+npm run dev        # http://localhost:5173
 ```
 
-# Building For Production
+| Script              | What it does                                         |
+| ------------------- | ---------------------------------------------------- |
+| `npm run dev`       | Dev server on port 5173 with the API proxied at /api |
+| `npm run build`     | Production build into `dist/`                        |
+| `npm run preview`   | Serve the production build                           |
+| `npm run lint`      | ESLint                                               |
+| `npm run typecheck` | `tsc --noEmit`                                       |
+| `npm run test`      | Vitest unit tests                                    |
+| `npm run check`     | Prettier check + ESLint + typecheck (run before PRs) |
+| `npm run format`    | Prettier write + ESLint fix                          |
 
-To build this application for production:
+### How the browser reaches the API
 
-```bash
-npm run build
+The browser only ever talks to the frontend's origin. The dev server forwards
+`/api/*` to the API with the `/api` prefix removed (WebSockets included), so
+the refresh-token cookie is first-party and the API needs no CORS. The API
+scopes that cookie to `Path=/auth`; the proxy rewrites it to `/api/auth` so the
+browser sends it back. Set `DOCTR8_API_URL` to point the proxy elsewhere.
+Production needs the same arrangement from its reverse proxy.
+
+### Development stubs
+
+`.env.development` turns on `VITE_TWO_STEP_STUB`, which simulates two-step
+verification on the client because the API doesn't have it yet. The code is
+`000000`, and any recovery code shaped like `ABCD-1234` is accepted. **It
+isn't security**, and the screen says so. See "Missing backend endpoints" below.
+
+## Folder structure
+
+```
+src/
+  routes/                    file-based routes (TanStack Router)
+    __root.tsx               HTML shell, theme bootstrap, devtools
+    _auth.tsx                auth layout: centred, no sidebar, mark in the corner
+    _auth/sign-in.tsx
+    _auth/two-step.tsx
+    _auth/choose-practice.tsx
+    _app.tsx                 app layout + route guard: sidebar, top bar, realtime
+    _app/index.tsx           dashboard ("/")
+    _app/<section>.tsx       diary, patients, billing, claims, finance, settings
+  components/
+    ui/                      Button, TextField, PasswordField, Checkbox, CodeInput …
+    layout/                  Sidebar, TopBar, PracticeSwitcher, UserMenu, Logo
+  lib/
+    api/                     fetch client (auth header, 401 → refresh → retry), errors
+    auth/                    session store, sign-in flow, guards, permissions, stubs
+    ws/                      WebSocket connection to the API's /ws
+    theme.ts                 dark/light theme with no flash on load
+    nav.ts                   navigation items and the permissions each needs
+  integrations/              TanStack Query provider and devtools
+  router.tsx                 router + query client
+  styles.css                 design tokens (CSS variables) + Tailwind
 ```
 
-## Styling
+Routes beginning with `_` are layouts that don't add to the URL. Pages own
+their data with TanStack Query. Shared, server-free logic lives in `lib/`
+and has unit tests next to it (`*.test.ts`).
 
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
+## Design rules
 
-### Removing Tailwind CSS
+These are rules, not suggestions. Review against them.
 
-If you prefer not to use Tailwind CSS:
+**Theme**
 
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Remove `@tailwindcss/vite` and `tailwindcss` from `package.json`
+- Dark mode is the default; a toggle switches to light and is remembered per
+  browser.
+- Every colour is a CSS variable in `src/styles.css`, exposed to Tailwind as
+  `bg-page`, `bg-panel`, `bg-card`, `bg-raised`, `border-border`,
+  `border-border-strong`, `text-text`, `text-muted`, `text-subtle`,
+  `bg-accent`, `text-on-accent`, `text-danger` and so on. Don't use raw
+  Tailwind colours (`bg-neutral-800`) or hex values in components.
+- Dark surfaces: neutral-950 page, neutral-900 panels, neutral-800 cards and
+  inputs, neutral-700/600 for borders, hovers and raised elements.
 
-## Linting & Formatting
+**Accent**
 
-This project uses [eslint](https://eslint.org/) and [prettier](https://prettier.io/) for linting and formatting. Eslint is configured using [tanstack/eslint-config](https://tanstack.com/config/latest/docs/eslint). The following scripts are available:
+- One accent green, `#3EE26C`, used for primary buttons, focus states and key
+  numbers only. Text on green is dark (`#04210D`, `text-on-accent`).
 
-```bash
-npm run lint
-npm run format
-npm run check
-```
+**Flat**
 
-## Routing
+- No gradients anywhere. Flat colours only. No glows, shadows-as-decoration,
+  blur or other decorative effects.
 
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
+**Accessible**
 
-### Adding A Route
+- Minimum touch target 44px (`min-h-11` / `size-11`) for anything clickable.
+- Every input has a real, visible `<label>`. Placeholders are hints, not labels.
+- Keyboard focus is always visible (a 2px focus-colour outline, global in
+  `styles.css`). Never remove outlines without a replacement.
+- Errors are text, linked to their field with `aria-describedby`, not colour
+  alone.
 
-To add a new route to your application just add a new file in the `./src/routes` directory.
+**Content**
 
-TanStack will automatically generate the content of the route file for you.
+- No fake data: no placeholder charts, numbers or sample patients. Unbuilt
+  sections show a plain empty state.
+- Never put patient details in URLs, `console` output or error reports.
 
-Now that you have two routes you can use a `Link` component to navigate between them.
+## How auth works
 
-### Adding Links
+The API's access module issues a short-lived access token (JWT, about 10
+minutes) and a rotating refresh token.
 
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
+**Tokens**
 
-```tsx
-import { Link } from '@tanstack/react-router'
-```
+- The **access token lives in memory only**: a module-level store in
+  `lib/auth/session.ts`, never in `localStorage`, `sessionStorage` or cookies.
+  Reloading the page loses it; the app gets a new one from the refresh token.
+- The **refresh token** is an httpOnly, Secure, SameSite=Strict cookie set by
+  the API on `/auth/*`. The frontend never reads it; the browser sends it to
+  `/api/auth/refresh`, `/api/auth/switch-practice` and `/api/auth/logout`.
 
-Then anywhere in your JSX you can use it like so:
+**Signing in**
 
-```tsx
-<Link to="/about">About</Link>
-```
+1. **Sign in** posts email and password to `/auth/login`.
+2. **Two-step code** (stubbed for now): 6 digits, or a recovery code, with
+   "don't ask again on this device for 30 days".
+3. **Choose a practice** appears only when the user belongs to more than one
+   practice and none was chosen. The API picks the practice itself when there's
+   only one.
+4. You land on the page you originally asked for, or the dashboard.
 
-This will create a link that will navigate to the `/about` route.
+**Keeping the session alive**
 
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
+- The access token is refreshed shortly before it expires.
+- The API client (`lib/api/client.ts`) adds `Authorization: Bearer …` to
+  every request. On a 401 it refreshes once and retries the request once; if
+  that fails, the session ends and the user is sent to sign in.
+- Refreshes are single-flight within a tab and coordinated across tabs with
+  the Web Locks API. Two tabs never present the same refresh token, which the
+  API would treat as theft and revoke the session. A tab that refreshes shares
+  the new access token with the other tabs over a `BroadcastChannel`, in
+  memory only. Sign-out and practice switches are broadcast the same way.
 
-### Using A Layout
+**Route guards**
 
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
+- `_app.tsx`'s `beforeLoad` waits for the session (refreshing from the cookie
+  on first load) and redirects signed-out users to `/sign-in?redirect=…`, so
+  app pages never render for them.
+- Sections that need a permission check it in their own `beforeLoad`.
+- Auth and app layouts render in the browser only (`ssr: false`), because the
+  server never has the user's token.
 
-Here is an example layout that includes a header:
+**Switching practice** posts to `/auth/switch-practice`. That gives a new
+token scoped to the new practice, clears the whole TanStack Query cache,
+reloads permissions (which drive navigation and guards) and reconnects the
+WebSocket.
 
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+**Signing out** posts to `/auth/logout`, clears the in-memory session and
+the query cache, closes the WebSocket and tells other tabs.
 
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
+**Permissions** come from the access token response (`permissions`). Use
+`can('billing.view')` or `<Can permission="…">` in components, and
+`requirePermission()` in `beforeLoad`. Navigation items declare the
+permissions they need in `lib/nav.ts` and are hidden otherwise. The API
+remains the real enforcement point.
 
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
+### WebSocket
 
-## Server Functions
+After sign-in the app layout opens `/api/ws` and authenticates with the first
+message (`{"type":"auth","token":…}`), never in the URL.
 
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
+- **Token refresh:** the new token is sent on the open socket, so there's no
+  gap in events.
+- **Practice switch:** the socket is closed and reopened with the new
+  practice's token.
+- **Dropped connections:** it reconnects with backoff. Close code 4001 means
+  refresh, then reconnect; 4009 means reconnect with the current token; 4003
+  means don't reconnect.
+- **Sign out:** the socket is closed.
 
-```tsx
-import { createServerFn } from '@tanstack/react-start'
+Nothing listens to events yet. Later, events will invalidate TanStack Query
+keys (see `../backend/src/common/ws/mod.rs` for the protocol).
 
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
+### Missing backend endpoints
 
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
+These screens are built against clearly marked stubs in
+`src/lib/auth/stubs.ts` until the API provides:
 
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+| Endpoint                                                                                             | Needed for                                                                                                                                                                              |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login` → `{ two_step_required: true, challenge_token }`                                  | Login must not issue tokens or set the refresh cookie until the second step passes                                                                                                      |
+| `POST /auth/two-step/verify` `{ challenge_token, code \| recovery_code, remember_device }`           | Verifying the 6-digit code or a recovery code; issues tokens + refresh cookie, and an httpOnly device-trust cookie (30 days) when `remember_device` is set                              |
+| `GET/POST /auth/two-step/setup`, `POST /auth/two-step/confirm`, `POST /auth/two-step/recovery-codes` | Enrolling an authenticator app and issuing recovery codes                                                                                                                               |
+| `remember: bool` on `POST /auth/login`                                                               | "Keep me signed in": the API should issue a session-only refresh cookie (no `Max-Age`) and a shorter session when it is false. The frontend already sends it; the API ignores it today. |
