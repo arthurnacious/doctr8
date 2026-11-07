@@ -1,8 +1,9 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Printer } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { Alert } from '#/components/ui/Field'
+import { PrintPageSetup } from '#/features/billing/PrintPageSetup'
 import { StatementControls } from '#/features/billing/StatementControls'
 import { StatementView } from '#/features/billing/StatementView'
 import { useStatement } from '#/features/billing/api'
@@ -66,7 +67,7 @@ function StatementPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+    <div className="statement-page mx-auto flex max-w-5xl flex-col gap-6">
       <Link
         to="/patients/file/$accountId"
         params={{ accountId }}
@@ -76,17 +77,35 @@ function StatementPage() {
         <ArrowLeft className="size-4" aria-hidden="true" />
         Back to the file
       </Link>
-      <h1 className="text-2xl font-semibold tracking-tight text-text">
-        Statement
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-text">
+          Statement
+          {statement.data && (
+            <>
+              {' '}
+              <span className="statement-key tabular-nums text-accent">
+                {statement.data.account.account_no}
+              </span>
+            </>
+          )}
+        </h1>
         {statement.data && (
-          <>
-            {' '}
-            <span className="tabular-nums text-accent">
-              {statement.data.account.account_no}
-            </span>
-          </>
+          <Button
+            variant="secondary"
+            className="no-print"
+            onClick={() => window.print()}
+          >
+            <Printer className="size-4" aria-hidden="true" />
+            Print or save as PDF
+          </Button>
         )}
-      </h1>
+      </div>
+      {statement.data && (
+        <PrintPageSetup
+          practice={statement.data.practice.name}
+          accountNo={statement.data.account.account_no}
+        />
+      )}
 
       {statement.isError ? (
         <div className="flex flex-col items-start gap-4">

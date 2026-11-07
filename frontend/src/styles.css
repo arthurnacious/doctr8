@@ -98,3 +98,150 @@
     outline-offset: 2px;
   }
 }
+
+/* Shown only on paper. */
+.print-only {
+  display: none;
+}
+
+/* A collapsed invoice on screen (print shows it in full). */
+.statement-collapsed {
+  display: none;
+}
+
+/*
+ * Print: A4, light on white whatever the app theme. App chrome and screen
+ * controls (.no-print) are left off; collapsed invoices print in full.
+ * The page header (practice name, account number) and page numbers are set
+ * per statement in @page margin boxes (see PrintPageSetup).
+ */
+@media print {
+  :root,
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --color-page: #ffffff;
+    --color-panel: #ffffff;
+    --color-card: #ffffff;
+    --color-raised: #ffffff;
+    --color-border: #d4d4d4;
+    --color-border-strong: #a3a3a3;
+    --color-text: #171717;
+    --color-text-muted: #404040;
+    --color-text-subtle: #525252;
+    /* The accent green, darkened so small headings stay legible on paper. */
+    --color-accent: #15803d;
+  }
+
+  @page {
+    size: A4;
+    margin: 18mm 14mm 16mm;
+  }
+
+  html,
+  body {
+    background: #ffffff;
+    font-size: 9.5pt;
+  }
+
+  .no-print,
+  [role='dialog'] {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .app-shell {
+    display: block;
+    min-height: 0;
+  }
+
+  .app-main {
+    padding: 0;
+  }
+
+  .statement-page {
+    max-width: none;
+    gap: 4mm;
+  }
+
+  .statement {
+    gap: 4mm;
+  }
+
+  .statement-block,
+  .statement-visit {
+    border-radius: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .statement-visit > h3 {
+    padding: 2mm 0;
+    border-bottom: 0.3mm solid var(--color-border-strong);
+  }
+
+  .statement-invoice {
+    padding: 3mm 0;
+    gap: 2mm;
+  }
+
+  /* Collapsed on screen; always in full on paper. */
+  .statement-collapsed {
+    display: flex;
+  }
+
+  .statement-invoice button {
+    margin-left: 0;
+  }
+
+  .statement-table {
+    overflow: visible;
+  }
+
+  .statement-table table {
+    min-width: 0 !important;
+  }
+
+  .statement-totals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .statement-totals > div {
+    border: 0.3mm solid var(--color-border);
+    padding: 3mm;
+  }
+
+  /* Green only for the small section headings on paper. */
+  .statement-key {
+    color: var(--color-text) !important;
+  }
+
+  .statement-label {
+    color: var(--color-accent) !important;
+  }
+
+  .statement-invoice > :first-child,
+  .statement-visit > h3,
+  .statement-totals,
+  .statement-ageing,
+  .statement-closing,
+  tr {
+    break-inside: avoid;
+  }
+
+  .statement-visit > h3 {
+    break-after: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  /* Links and buttons print as plain text. */
+  button {
+    min-height: 0 !important;
+    padding: 0 !important;
+  }
+}

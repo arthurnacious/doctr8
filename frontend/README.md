@@ -134,6 +134,14 @@ These are rules, not suggestions. Review against them.
   ESLint forbids `console`; patient search text stays in memory (never the
   URL or storage) and searches are POSTs.
 
+**Print**
+
+- Printed pages are A4, white with dark text whatever the theme
+  (`@media print` in `styles.css`). Mark screen-only UI with `no-print`;
+  green on paper is for small headings only.
+- Repeating page headers and page numbers use `@page` margin boxes
+  (`PrintPageSetup`): Chromium-based browsers print them, others don't.
+
 **Forms**
 
 - TanStack Form (`useAppForm` from `components/form`) with zod schemas, kept

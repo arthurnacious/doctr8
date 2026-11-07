@@ -77,8 +77,8 @@ function AppLayout() {
   )
 
   return (
-    <div className="min-h-dvh bg-page lg:grid lg:grid-cols-[16rem_1fr]">
-      <aside className="sticky top-0 hidden h-dvh border-r border-border bg-panel lg:block">
+    <div className="app-shell min-h-dvh bg-page lg:grid lg:grid-cols-[16rem_1fr]">
+      <aside className="no-print sticky top-0 hidden h-dvh border-r border-border bg-panel lg:block">
         {sidebar}
       </aside>
       <MobileNav open={menuOpen} onClose={closeMenu}>
@@ -86,7 +86,7 @@ function AppLayout() {
       </MobileNav>
       <div className="flex min-w-0 flex-col">
         <TopBar menuOpen={menuOpen} onOpenMenu={() => setMenuOpen(true)} />
-        <main className="flex-1 px-4 py-6 sm:px-8">
+        <main className="app-main flex-1 px-4 py-6 sm:px-8">
           <Outlet />
         </main>
       </div>

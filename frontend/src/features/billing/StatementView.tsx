@@ -140,6 +140,8 @@ export function StatementView({
           <AgeingTable s={s} />
         </>
       )}
+
+      <StatementClosing s={s} />
     </article>
   )
 }
@@ -421,11 +423,11 @@ function InvoiceBlock({
   return (
     <div className="statement-invoice flex flex-col gap-4 p-5">
       <InvoiceHeader inv={inv} providers={providers} title={title} />
-      {/* Collapsed on screen only: print always shows the detail. */}
+      {/* Collapsed on screen only (a class, not [hidden], so print can
+          override it): paper always shows the detail. */}
       <div
         id={detailsId}
-        hidden={!open}
-        className="statement-invoice-details flex flex-col gap-4"
+        className={`statement-invoice-details flex-col gap-4 ${open ? 'flex' : 'statement-collapsed'}`}
       >
         <InvoiceLines lines={inv.lines} providers={providers} />
         {lines.length > 0 && (
@@ -661,7 +663,7 @@ function AgeingTable({ s }: { s: Statement }) {
   return (
     <section
       aria-labelledby="ageing-heading"
-      className="statement-block rounded-lg border border-border bg-panel p-5"
+      className="statement-ageing statement-block rounded-lg border border-border bg-panel p-5"
     >
       <h2
         id="ageing-heading"
@@ -707,6 +709,91 @@ function AgeingTable({ s }: { s: Statement }) {
           </tbody>
         </table>
       </div>
+    </section>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Closing: how to pay, and who is responsible for what
+// -----------------------------------------------------------------------------
+
+export function hasBankDetails(p: Statement['practice']): boolean {
+  return Boolean(p.bank_name && p.bank_account_number)
+}
+
+function StatementClosing({ s }: { s: Statement }) {
+  const p = s.practice
+  const bank = hasBankDetails(p)
+  return (
+    <section
+      aria-label="Payment and responsibility"
+      className="statement-closing statement-block grid gap-5 rounded-lg border border-border bg-panel p-5 md:grid-cols-2"
+    >
+      <div>
+        <h2 className="statement-label text-xs font-semibold uppercase tracking-wide text-subtle">
+          How to pay
+        </h2>
+        {bank ? (
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt className="text-muted">Bank</dt>
+            <dd className="text-text">{p.bank_name}</dd>
+            {p.bank_account_name && (
+              <>
+                <dt className="text-muted">Account name</dt>
+                <dd className="text-text">{p.bank_account_name}</dd>
+              </>
+            )}
+            <dt className="text-muted">Account number</dt>
+            <dd className="font-mono text-text">{p.bank_account_number}</dd>
+            {p.bank_branch_code && (
+              <>
+                <dt className="text-muted">Branch code</dt>
+                <dd className="font-mono text-text">{p.bank_branch_code}</dd>
+              </>
+            )}
+            <dt className="text-muted">Reference</dt>
+            <dd className="font-semibold tabular-nums text-text">
+              {s.account.account_no}
+            </dd>
+          </dl>
+        ) : (
+          <p className="mt-2 text-sm text-muted">
+            <span className="no-print">
+              The practice&rsquo;s banking details aren&rsquo;t set up yet, so
+              they&rsquo;re left off the printed statement.
+            </span>
+          </p>
+        )}
+        {bank && (
+          <p className="mt-2 text-sm text-muted">
+            Please use your account number as the payment reference.
+          </p>
+        )}
+      </div>
+      <div>
+        <h2 className="statement-label text-xs font-semibold uppercase tracking-wide text-subtle">
+          Medical aid and patient responsibility
+        </h2>
+        <p className="mt-2 text-sm text-text">
+          {s.medical_aid
+            ? 'Claims are sent to your medical aid, which pays according to its rules and your plan. Anything the medical aid does not pay, including co-payments, levies and amounts above the scheme rate, is the responsibility of the account holder.'
+            : 'This is a private account: the account holder is responsible for the full amount.'}
+        </p>
+        <p className="mt-2 text-sm text-muted">
+          Questions about this statement? Contact {p.name}
+          {p.phone ? ` on ${p.phone}` : ''}
+          {p.email ? ` or ${p.email}` : ''}.
+        </p>
+      </div>
+      <p className="print-only text-xs text-subtle md:col-span-2">
+        Statement as of {formatDate(s.as_of)}, printed{' '}
+        {new Intl.DateTimeFormat('en-ZA', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+          timeZone: 'Africa/Johannesburg',
+        }).format(new Date(s.generated_at))}
+        .
+      </p>
     </section>
   )
 }
