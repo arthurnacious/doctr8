@@ -12,6 +12,7 @@ import type {
   PatientFile,
   PatientPage,
   PatientSearchParams,
+  PatientStatus,
   PersonDetails,
   PersonSummary,
   Scheme,
@@ -30,6 +31,8 @@ export const patientKeys = {
   file: (accountId: string) => ['patients', 'file', accountId] as const,
   people: () => ['patients', 'person'] as const,
   person: (personId: string) => ['patients', 'person', personId] as const,
+  memberships: () => ['patients', 'membership'] as const,
+  membership: (id: string) => ['patients', 'membership', id] as const,
   settings: () => ['patients', 'settings'] as const,
   schemes: () => ['medical-schemes'] as const,
   personSearch: (q: string) => ['patients', 'person-search', q] as const,
@@ -113,5 +116,108 @@ export function useCreateFile() {
       qc.setQueryData(patientKeys.file(file.id), file)
       void qc.invalidateQueries({ queryKey: patientKeys.lists() })
     },
+  })
+}
+
+// -----------------------------------------------------------------------------
+// Editing. Each mutation updates the cache from the response straight away;
+// other screens catch up through the patient_file.changed event.
+// -----------------------------------------------------------------------------
+
+function useFileMutation<TVars>(
+  accountId: string,
+  request: (vars: TVars) => Promise<PatientFile>,
+) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: request,
+    onSuccess: (file) => {
+      qc.setQueryData(patientKeys.file(accountId), file)
+      void qc.invalidateQueries({ queryKey: patientKeys.lists() })
+    },
+  })
+}
+
+/** PUT /persons/{id}: replaces the person's details. */
+export function useUpdatePerson(personId: string, accountId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Record<string, string>) =>
+      api<PersonDetails>(`/persons/${personId}`, { method: 'PUT', json: body }),
+    onSuccess: (person) => {
+      qc.setQueryData(patientKeys.person(personId), person)
+      // Names show on the file and in the list.
+      void qc.invalidateQueries({ queryKey: patientKeys.file(accountId) })
+      void qc.invalidateQueries({ queryKey: patientKeys.lists() })
+    },
+  })
+}
+
+/** PATCH /medical-aid-memberships/{id}: plan or membership number. */
+export function useUpdateMembership(membershipId: string, accountId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { plan_id: string; membership_number: string }) =>
+      api<Membership>(`/medical-aid-memberships/${membershipId}`, {
+        method: 'PATCH',
+        json: body,
+      }),
+    onSuccess: (membership) => {
+      qc.setQueryData(patientKeys.membership(membershipId), membership)
+      void qc.invalidateQueries({ queryKey: patientKeys.file(accountId) })
+      void qc.invalidateQueries({ queryKey: patientKeys.lists() })
+    },
+  })
+}
+
+/** PATCH /accounts/{id}: a new medical aid, or private. */
+export function useChangeMedicalAid(accountId: string) {
+  return useFileMutation(accountId, (body: object) =>
+    api<PatientFile>(`/accounts/${accountId}`, { method: 'PATCH', json: body }),
+  )
+}
+
+/** POST /accounts/{id}/patients: a new or existing person as a dependant. */
+export function useAddDependant(accountId: string) {
+  return useFileMutation(accountId, (body: object) =>
+    api<PatientFile>(`/accounts/${accountId}/patients`, {
+      method: 'POST',
+      json: body,
+    }),
+  )
+}
+
+/** PUT /patients/{id}/status. */
+export function useSetPatientStatus(accountId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { patientId: string; status: PatientStatus }) =>
+      api(`/patients/${v.patientId}/status`, {
+        method: 'PUT',
+        json: { status: v.status },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: patientKeys.file(accountId) })
+      void qc.invalidateQueries({ queryKey: patientKeys.lists() })
+    },
+  })
+}
+
+export interface Membership {
+  id: string
+  scheme_id: string
+  scheme_name: string
+  plan_id: string
+  plan_name: string
+  membership_number: string
+  main_member_person_id: string
+}
+
+/** GET /medical-aid-memberships/{id}: needed to edit the plan. */
+export function useMembership(membershipId: string | undefined) {
+  return useQuery({
+    queryKey: patientKeys.membership(membershipId ?? ''),
+    queryFn: () => api<Membership>(`/medical-aid-memberships/${membershipId}`),
+    enabled: Boolean(membershipId),
   })
 }

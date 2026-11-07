@@ -22,6 +22,7 @@ describe('realtime → query invalidation', () => {
       ['patients', 'list'],
       ['patients', 'file', 'a1'],
       ['patients', 'person'],
+      ['patients', 'membership'],
     ])
   })
 

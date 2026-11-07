@@ -1,10 +1,22 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { Alert } from '#/components/ui/Field'
 import { Tabs } from '#/components/ui/Tabs'
-import { usePatientFile, usePerson } from '#/features/patients/api'
+import {
+  usePatientFile,
+  usePerson,
+  useSetPatientStatus,
+} from '#/features/patients/api'
+import {
+  AddDependantForm,
+  ChangeMedicalAidForm,
+  EditMembershipForm,
+  EditPersonForm,
+} from '#/features/patients/edit/EditForms'
+import { friendlyError } from '#/features/patients/errors'
 import {
   FILE_MODE_HELP,
   FILE_MODE_LABELS,
@@ -15,8 +27,9 @@ import {
   fullName,
 } from '#/features/patients/format'
 import { ApiError, errorMessage } from '#/lib/api/errors'
+import { useCan } from '#/lib/auth/session'
 import type { ReactNode } from 'react'
-import type { PatientFile } from '#/features/patients/types'
+import type { PatientFile, PersonDetails } from '#/features/patients/types'
 
 const TABS = [
   { id: 'details', label: 'Details' },
@@ -141,6 +154,7 @@ function PatientFilePage() {
             )
           })}
         </ul>
+        <AddDependant file={f} onAdded={(id) => select({ patient: id })} />
       </Panel>
 
       {selected && (
@@ -148,12 +162,22 @@ function PatientFilePage() {
           aria-labelledby="patient-heading"
           className="rounded-lg border border-border bg-panel p-5"
         >
-          <h2 id="patient-heading" className="text-lg font-semibold text-text">
-            {fullName(selected)}{' '}
-            <span className="text-sm font-normal text-muted">
-              · dependant {selected.dependant_code}
-            </span>
-          </h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2
+              id="patient-heading"
+              className="text-lg font-semibold text-text"
+            >
+              {fullName(selected)}{' '}
+              <span className="text-sm font-normal text-muted">
+                · dependant {selected.dependant_code}
+              </span>
+            </h2>
+            <StatusControl
+              key={selected.patient_id}
+              accountId={f.id}
+              patient={selected}
+            />
+          </div>
           <div className="mt-4">
             <Tabs
               label="Patient"
@@ -162,7 +186,11 @@ function PatientFilePage() {
               onSelect={(t) => select({ tab: t })}
             >
               {tab === 'details' && (
-                <DetailsTab personId={selected.person_id} />
+                <DetailsTab
+                  key={selected.person_id}
+                  personId={selected.person_id}
+                  accountId={f.id}
+                />
               )}
               {tab === 'medical-aid' && (
                 <MedicalAidTab
@@ -252,12 +280,92 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function DetailsTab({ personId }: { personId: string }) {
+/**
+ * Which form is open, a "saved" note, and focus back on the button that
+ * opened the form once it closes (the button re-renders, so it's found by
+ * name rather than kept).
+ */
+function useEditing<T extends string>() {
+  const [editing, setEditing] = useState<T | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+  const buttons = useRef(new Map<T, HTMLButtonElement | null>())
+  const restore = useRef<T | null>(null)
+  useEffect(() => {
+    if (editing === null && restore.current) {
+      buttons.current.get(restore.current)?.focus()
+      restore.current = null
+    }
+  }, [editing])
+  return {
+    editing,
+    saved,
+    buttonRef: (what: T) => (el: HTMLButtonElement | null) => {
+      buttons.current.set(what, el)
+    },
+    open: (what: T) => {
+      restore.current = what
+      setSaved(null)
+      setEditing(what)
+    },
+    close: (message: string | null) => {
+      setEditing(null)
+      setSaved(message)
+    },
+  }
+}
+
+function Saved({ message }: { message: string | null }) {
+  return (
+    <p role="status" className="text-sm text-muted">
+      {message}
+    </p>
+  )
+}
+
+function DetailsTab({
+  personId,
+  accountId,
+}: {
+  personId: string
+  accountId: string
+}) {
   const person = usePerson(personId)
+  const canEdit = useCan('patients.manage')
+  const e = useEditing<'person'>()
   if (person.isError) return <Alert>{errorMessage(person.error)}</Alert>
   if (!person.data)
     return <p className="text-sm text-muted">Loading details…</p>
   const p = person.data
+  if (e.editing) {
+    return (
+      <EditPersonForm
+        person={p}
+        accountId={accountId}
+        onDone={(ok) => e.close(ok ? 'Details saved.' : null)}
+      />
+    )
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            ref={e.buttonRef('person')}
+            onClick={() => e.open('person')}
+          >
+            <Pencil className="size-4" aria-hidden="true" />
+            Edit details
+          </Button>
+          <Saved message={e.saved} />
+        </div>
+      )}
+      <PersonDetailsList p={p} />
+    </div>
+  )
+}
+
+function PersonDetailsList({ p }: { p: PersonDetails }) {
   return (
     <dl className="flex flex-col gap-3">
       <Field label="Name">{fullName(p)}</Field>
@@ -294,25 +402,180 @@ function MedicalAidTab({
   dependantCode: string
 }) {
   const main = useMainMemberName(file)
+  const canEdit = useCan('accounts.manage')
+  const e = useEditing<'membership' | 'change'>()
+
+  if (e.editing === 'membership')
+    return (
+      <EditMembershipForm
+        file={file}
+        onDone={(ok) => e.close(ok ? 'Medical aid saved.' : null)}
+      />
+    )
+  if (e.editing === 'change')
+    return (
+      <ChangeMedicalAidForm
+        file={file}
+        onDone={(ok) => e.close(ok ? 'Medical aid changed.' : null)}
+      />
+    )
+
+  const actions = canEdit && (
+    <div className="flex flex-wrap items-center gap-3">
+      {file.medical_aid && (
+        <Button
+          variant="secondary"
+          ref={e.buttonRef('membership')}
+          onClick={() => e.open('membership')}
+        >
+          <Pencil className="size-4" aria-hidden="true" />
+          Edit plan or number
+        </Button>
+      )}
+      <Button
+        variant="secondary"
+        ref={e.buttonRef('change')}
+        onClick={() => e.open('change')}
+      >
+        {file.medical_aid ? 'Change medical aid' : 'Add medical aid'}
+      </Button>
+      <Saved message={e.saved} />
+    </div>
+  )
+
   if (!file.medical_aid) {
     return (
-      <p className="text-sm text-muted">
-        This file is private: there is no medical aid.
-      </p>
+      <div className="flex flex-col gap-4">
+        {actions}
+        <p className="text-sm text-muted">
+          This file is private: there is no medical aid.
+        </p>
+      </div>
     )
   }
   const m = file.medical_aid
   return (
-    <dl className="flex flex-col gap-3">
-      <Field label="Scheme">{m.scheme_name}</Field>
-      <Field label="Plan">{m.plan_name}</Field>
-      <Field label="Membership number">
-        <span className="font-mono">{m.membership_number}</span>
-      </Field>
-      <Field label="Main member">{main}</Field>
-      <Field label="Dependant code">
-        <span className="tabular-nums">{dependantCode}</span>
-      </Field>
-    </dl>
+    <div className="flex flex-col gap-4">
+      {actions}
+      <dl className="flex flex-col gap-3">
+        <Field label="Scheme">{m.scheme_name}</Field>
+        <Field label="Plan">{m.plan_name}</Field>
+        <Field label="Membership number">
+          <span className="font-mono">{m.membership_number}</span>
+        </Field>
+        <Field label="Main member">{main}</Field>
+        <Field label="Dependant code">
+          <span className="tabular-nums">{dependantCode}</span>
+        </Field>
+      </dl>
+    </div>
+  )
+}
+
+/** Family files only: add a new or existing person as a dependant. */
+function AddDependant({
+  file,
+  onAdded,
+}: {
+  file: PatientFile
+  onAdded: (patientId: string) => void
+}) {
+  const canAdd = useCan('patients.manage')
+  const e = useEditing<'add'>()
+  if (!canAdd || file.file_mode !== 'family_per_file' || file.status !== 'open')
+    return null
+  if (e.editing) {
+    return (
+      <div className="mt-4 border-t border-border pt-4">
+        <AddDependantForm
+          file={file}
+          onDone={(added) => {
+            e.close(added ? 'Dependant added.' : null)
+            if (added) onAdded(added)
+          }}
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3">
+      <Button
+        variant="secondary"
+        ref={e.buttonRef('add')}
+        onClick={() => e.open('add')}
+      >
+        <Plus className="size-4" aria-hidden="true" />
+        Add dependant
+      </Button>
+      <Saved message={e.saved} />
+    </div>
+  )
+}
+
+/** Active/inactive, with a confirmation step before marking inactive. */
+function StatusControl({
+  accountId,
+  patient,
+}: {
+  accountId: string
+  patient: PatientFile['patients'][number]
+}) {
+  const canEdit = useCan('patients.manage')
+  const set = useSetPatientStatus(accountId)
+  const [confirming, setConfirming] = useState(false)
+  if (!canEdit) return null
+
+  const change = (status: 'active' | 'inactive') =>
+    set.mutate(
+      { patientId: patient.patient_id, status },
+      { onSuccess: () => setConfirming(false) },
+    )
+
+  if (patient.status === 'inactive') {
+    return (
+      <div className="flex flex-col items-end gap-2">
+        <Button
+          variant="secondary"
+          busy={set.isPending}
+          onClick={() => change('active')}
+        >
+          Mark active
+        </Button>
+        {set.error ? <Alert>{friendlyError(set.error)}</Alert> : null}
+      </div>
+    )
+  }
+  if (!confirming) {
+    return (
+      <Button variant="secondary" onClick={() => setConfirming(true)}>
+        Mark inactive
+      </Button>
+    )
+  }
+  return (
+    <div
+      role="group"
+      aria-label="Confirm marking inactive"
+      className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:max-w-md"
+    >
+      <p className="text-sm text-text">
+        Mark {fullName(patient)} inactive? They stay on this file and can be
+        found with the Inactive filter. You can mark them active again.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <Button
+          variant="danger"
+          busy={set.isPending}
+          onClick={() => change('inactive')}
+          autoFocus
+        >
+          Mark inactive
+        </Button>
+        <Button variant="secondary" onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+      </div>
+      {set.error ? <Alert>{friendlyError(set.error)}</Alert> : null}
+    </div>
   )
 }

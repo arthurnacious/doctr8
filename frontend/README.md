@@ -62,9 +62,14 @@ src/
     _auth/choose-practice.tsx
     _app.tsx                 app layout + route guard: sidebar, top bar, realtime
     _app/index.tsx           dashboard ("/")
-    _app/<section>.tsx       diary, patients, billing, claims, finance, settings
+    _app/<section>.tsx       diary, billing, claims, finance, settings
+    _app/patients/           list, file view (+ editing), new-file flow
+  features/
+    patients/                API hooks, types, formatting, error wording,
+                             new-file/ and edit/ form models (zod) and forms
   components/
-    ui/                      Button, TextField, PasswordField, Checkbox, CodeInput …
+    ui/                      Button, TextField, PasswordField, Checkbox, Tabs …
+    form/                    TanStack Form hook + field components (useAppForm)
     layout/                  Sidebar, TopBar, PracticeSwitcher, UserMenu, Logo
   lib/
     api/                     fetch client (auth header, 401 → refresh → retry), errors
@@ -123,6 +128,17 @@ These are rules, not suggestions. Review against them.
 - No fake data: no placeholder charts, numbers or sample patients. Unbuilt
   sections show a plain empty state.
 - Never put patient details in URLs, `console` output or error reports.
+  ESLint forbids `console`; patient search text stays in memory (never the
+  URL or storage) and searches are POSTs.
+
+**Forms**
+
+- TanStack Form (`useAppForm` from `components/form`) with zod schemas, kept
+  in a `model.ts` with unit tests. Errors show once a field is touched or a
+  save is attempted.
+- Show backend errors through `friendlyError`, which turns file-mode and
+  duplicate errors into plain language with a next step.
+- Only render actions the user's permissions allow (`useCan`).
 
 ## How auth works
 

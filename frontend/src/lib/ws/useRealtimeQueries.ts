@@ -24,6 +24,8 @@ export function invalidateFor(qc: QueryClient, msg: RealtimeMessage): void {
     }
     // A person's details may have changed; refetch whichever are on screen.
     void qc.invalidateQueries({ queryKey: ['patients', 'person'] })
+    // So does the medical aid (plan, number) shown in an edit form.
+    void qc.invalidateQueries({ queryKey: ['patients', 'membership'] })
   }
 }
 

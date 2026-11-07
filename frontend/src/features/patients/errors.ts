@@ -9,12 +9,20 @@ import { FILE_MODE_LABELS } from './format'
 
 const MODE_KEYS: Array<[string, string]> = Object.entries(FILE_MODE_LABELS)
 
-export function friendlyMessage(message: string): string {
+/** Where the error happened: hints differ between creating and editing. */
+export type ErrorContext = 'create' | 'edit'
+
+export function friendlyMessage(
+  message: string,
+  context: ErrorContext = 'create',
+): string {
   let m = message
   for (const [key, label] of MODE_KEYS)
     m = m.replaceAll(key, `"${label.toLowerCase()}"`)
 
   if (/identity document already exists/i.test(m)) {
+    if (context === 'edit')
+      return `${m}. Check the number: it belongs to someone else on record.`
     return `${m}. Search for them and choose "Someone already in the practice" instead.`
   }
   if (/membership number is already recorded/i.test(m)) {
@@ -45,7 +53,10 @@ export function friendlyMessage(message: string): string {
   return m
 }
 
-export function friendlyError(err: unknown): string {
-  if (err instanceof ApiError) return friendlyMessage(err.message)
+export function friendlyError(
+  err: unknown,
+  context: ErrorContext = 'create',
+): string {
+  if (err instanceof ApiError) return friendlyMessage(err.message, context)
   return errorMessage(err)
 }

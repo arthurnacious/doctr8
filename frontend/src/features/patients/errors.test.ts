@@ -22,6 +22,12 @@ describe('friendly patient errors', () => {
     ).toMatch(/Someone already in the practice/)
     expect(
       friendlyMessage(
+        'A person with this identity document already exists in this practice',
+        'edit',
+      ),
+    ).toMatch(/belongs to someone else/)
+    expect(
+      friendlyMessage(
         'This account was opened in new debtor per visit mode: open a new account for each visit instead of adding patients',
       ),
     ).toMatch(/Open a new file for this visit/)
