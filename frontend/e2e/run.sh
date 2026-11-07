@@ -65,9 +65,22 @@ curl -sf -X PUT "$API/members/$REC/roles" -H 'content-type: application/json' -H
 
 register nobody@e2e.test "No Practice" >/dev/null
 
+# Patients in Practice A: enough for two pages, one on medical aid with an
+# SA ID number, and one inactive.
+read -r SCHEME PLAN < <(psql "$TEST_DATABASE_URL" -tA -F' ' -c "
+  WITH s AS (INSERT INTO medical_schemes (name) VALUES ('E2E Health') RETURNING id),
+       p AS (INSERT INTO medical_scheme_plans (scheme_id, name) SELECT id, 'Core' FROM s RETURNING id)
+  SELECT (SELECT id FROM s), (SELECT id FROM p)")
+for i in $(seq -w 1 28); do
+  post /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Pat$i\",\"last_name\":\"Listtest\",\"date_of_birth\":\"1990-01-$i\"}}}],\"guarantor\":{\"patient\":0}}" "$TA" >/dev/null
+done
+post /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Naledi\",\"last_name\":\"Mokoena\",\"id_number\":\"8001015009087\"}}}],\"guarantor\":{\"patient\":0},\"medical_aid\":{\"new\":{\"scheme_id\":\"$SCHEME\",\"plan_id\":\"$PLAN\",\"membership_number\":\"E2E-77\",\"main_member\":{\"patient\":0}}}}" "$TA" >/dev/null
+INACTIVE=$(post /patient-files '{"patients":[{"person":{"new":{"first_name":"Ina","last_name":"Ctive"}}}],"guarantor":{"patient":0}}' "$TA" | jq -r '.patients[0].patient_id')
+curl -sf -X PUT "$API/patients/$INACTIVE/status" -H 'content-type: application/json' -H "authorization: Bearer $TA" -d '{"status":"inactive"}' >/dev/null
+
 echo "== starting frontend on :$WEB_PORT"
 cd "$FRONTEND"
-DOCTR8_API_URL="$API" VITE_TWO_STEP_STUB=true npx vite dev --port "$WEB_PORT" --strictPort >"$WORK/web.log" 2>&1 &
+DOCTR8_API_URL="$API" VITE_TWO_STEP_STUB=true VITE_DEVTOOLS=false npx vite dev --port "$WEB_PORT" --strictPort >"$WORK/web.log" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 150); do curl -sf "localhost:$WEB_PORT/sign-in" >/dev/null && break; sleep 0.2; done
 

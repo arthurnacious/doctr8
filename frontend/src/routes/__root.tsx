@@ -13,6 +13,9 @@ import { themeBootScript } from '../lib/theme'
 
 import type { QueryClient } from '@tanstack/react-query'
 
+/** Devtools are dev-only (stripped from builds); VITE_DEVTOOLS=false hides them. */
+const SHOW_DEVTOOLS = import.meta.env.VITE_DEVTOOLS !== 'false'
+
 interface MyRouterContext {
   queryClient: QueryClient
 }
@@ -52,18 +55,20 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <TanStackDevtools
-          config={{
-            position: 'bottom-right',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-            TanStackQueryDevtools,
-          ]}
-        />
+        {SHOW_DEVTOOLS && (
+          <TanStackDevtools
+            config={{
+              position: 'bottom-right',
+            }}
+            plugins={[
+              {
+                name: 'Tanstack Router',
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+              TanStackQueryDevtools,
+            ]}
+          />
+        )}
         <Scripts />
       </body>
     </html>

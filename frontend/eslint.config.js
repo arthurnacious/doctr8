@@ -12,6 +12,8 @@ export default [
       '@typescript-eslint/array-type': 'off',
       '@typescript-eslint/require-await': 'off',
       'pnpm/json-enforce-catalog': 'off',
+      // Patient details must never reach the browser console.
+      'no-console': 'error',
     },
   },
   {

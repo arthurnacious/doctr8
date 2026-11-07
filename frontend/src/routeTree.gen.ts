@@ -16,11 +16,13 @@ import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppClaimsRouteImport } from './routes/_app/claims'
 import { Route as AppDiaryRouteImport } from './routes/_app/diary'
 import { Route as AppFinanceRouteImport } from './routes/_app/finance'
-import { Route as AppPatientsRouteImport } from './routes/_app/patients'
+import { Route as AppPatientsRouteRouteImport } from './routes/_app/patients/route'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AuthChoosePracticeRouteImport } from './routes/_auth/choose-practice'
 import { Route as AuthSignInRouteImport } from './routes/_auth/sign-in'
 import { Route as AuthTwoStepRouteImport } from './routes/_auth/two-step'
+import { Route as AppPatientsIndexRouteImport } from './routes/_app/patients/index'
+import { Route as AppPatientsFileAccountIdRouteImport } from './routes/_app/patients/file.$accountId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -55,7 +57,7 @@ const AppFinanceRoute = AppFinanceRouteImport.update({
   path: '/finance',
   getParentRoute: () => AppRoute,
 } as any)
-const AppPatientsRoute = AppPatientsRouteImport.update({
+const AppPatientsRouteRoute = AppPatientsRouteRouteImport.update({
   id: '/patients',
   path: '/patients',
   getParentRoute: () => AppRoute,
@@ -80,18 +82,31 @@ const AuthTwoStepRoute = AuthTwoStepRouteImport.update({
   path: '/two-step',
   getParentRoute: () => AuthRoute,
 } as any)
+const AppPatientsIndexRoute = AppPatientsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppPatientsRouteRoute,
+} as any)
+const AppPatientsFileAccountIdRoute =
+  AppPatientsFileAccountIdRouteImport.update({
+    id: '/file/$accountId',
+    path: '/file/$accountId',
+    getParentRoute: () => AppPatientsRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/patients': typeof AppPatientsRouteRouteWithChildren
   '/billing': typeof AppBillingRoute
   '/claims': typeof AppClaimsRoute
   '/diary': typeof AppDiaryRoute
   '/finance': typeof AppFinanceRoute
-  '/patients': typeof AppPatientsRoute
   '/settings': typeof AppSettingsRoute
   '/choose-practice': typeof AuthChoosePracticeRoute
   '/sign-in': typeof AuthSignInRoute
   '/two-step': typeof AuthTwoStepRoute
+  '/patients/': typeof AppPatientsIndexRoute
+  '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
@@ -99,40 +114,45 @@ export interface FileRoutesByTo {
   '/claims': typeof AppClaimsRoute
   '/diary': typeof AppDiaryRoute
   '/finance': typeof AppFinanceRoute
-  '/patients': typeof AppPatientsRoute
   '/settings': typeof AppSettingsRoute
   '/choose-practice': typeof AuthChoosePracticeRoute
   '/sign-in': typeof AuthSignInRoute
   '/two-step': typeof AuthTwoStepRoute
+  '/patients': typeof AppPatientsIndexRoute
+  '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/_app/patients': typeof AppPatientsRouteRouteWithChildren
   '/_app/billing': typeof AppBillingRoute
   '/_app/claims': typeof AppClaimsRoute
   '/_app/diary': typeof AppDiaryRoute
   '/_app/finance': typeof AppFinanceRoute
-  '/_app/patients': typeof AppPatientsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_auth/choose-practice': typeof AuthChoosePracticeRoute
   '/_auth/sign-in': typeof AuthSignInRoute
   '/_auth/two-step': typeof AuthTwoStepRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/patients/': typeof AppPatientsIndexRoute
+  '/_app/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/patients'
     | '/billing'
     | '/claims'
     | '/diary'
     | '/finance'
-    | '/patients'
     | '/settings'
     | '/choose-practice'
     | '/sign-in'
     | '/two-step'
+    | '/patients/'
+    | '/patients/file/$accountId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -140,25 +160,28 @@ export interface FileRouteTypes {
     | '/claims'
     | '/diary'
     | '/finance'
-    | '/patients'
     | '/settings'
     | '/choose-practice'
     | '/sign-in'
     | '/two-step'
+    | '/patients'
+    | '/patients/file/$accountId'
   id:
     | '__root__'
     | '/_app'
     | '/_auth'
+    | '/_app/patients'
     | '/_app/billing'
     | '/_app/claims'
     | '/_app/diary'
     | '/_app/finance'
-    | '/_app/patients'
     | '/_app/settings'
     | '/_auth/choose-practice'
     | '/_auth/sign-in'
     | '/_auth/two-step'
     | '/_app/'
+    | '/_app/patients/'
+    | '/_app/patients/file/$accountId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -221,7 +244,7 @@ declare module '@tanstack/react-router' {
       id: '/_app/patients'
       path: '/patients'
       fullPath: '/patients'
-      preLoaderRoute: typeof AppPatientsRouteImport
+      preLoaderRoute: typeof AppPatientsRouteRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings': {
@@ -252,25 +275,52 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthTwoStepRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_app/patients/': {
+      id: '/_app/patients/'
+      path: '/'
+      fullPath: '/patients/'
+      preLoaderRoute: typeof AppPatientsIndexRouteImport
+      parentRoute: typeof AppPatientsRouteRoute
+    }
+    '/_app/patients/file/$accountId': {
+      id: '/_app/patients/file/$accountId'
+      path: '/file/$accountId'
+      fullPath: '/patients/file/$accountId'
+      preLoaderRoute: typeof AppPatientsFileAccountIdRouteImport
+      parentRoute: typeof AppPatientsRouteRoute
+    }
   }
 }
 
+interface AppPatientsRouteRouteChildren {
+  AppPatientsIndexRoute: typeof AppPatientsIndexRoute
+  AppPatientsFileAccountIdRoute: typeof AppPatientsFileAccountIdRoute
+}
+
+const AppPatientsRouteRouteChildren: AppPatientsRouteRouteChildren = {
+  AppPatientsIndexRoute: AppPatientsIndexRoute,
+  AppPatientsFileAccountIdRoute: AppPatientsFileAccountIdRoute,
+}
+
+const AppPatientsRouteRouteWithChildren =
+  AppPatientsRouteRoute._addFileChildren(AppPatientsRouteRouteChildren)
+
 interface AppRouteChildren {
+  AppPatientsRouteRoute: typeof AppPatientsRouteRouteWithChildren
   AppBillingRoute: typeof AppBillingRoute
   AppClaimsRoute: typeof AppClaimsRoute
   AppDiaryRoute: typeof AppDiaryRoute
   AppFinanceRoute: typeof AppFinanceRoute
-  AppPatientsRoute: typeof AppPatientsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppPatientsRouteRoute: AppPatientsRouteRouteWithChildren,
   AppBillingRoute: AppBillingRoute,
   AppClaimsRoute: AppClaimsRoute,
   AppDiaryRoute: AppDiaryRoute,
   AppFinanceRoute: AppFinanceRoute,
-  AppPatientsRoute: AppPatientsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }
