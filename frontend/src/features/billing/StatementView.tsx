@@ -3,11 +3,16 @@
  * lines and transactions), unallocated money and ageing. Amounts are
  * right-aligned in tabular figures so columns line up.
  */
+import { useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+
+import { Button } from '#/components/ui/Button'
 import { FILE_MODE_LABELS, formatDate, fullName } from '../patients/format'
 import { formatRand, formatRandOrBlank } from './money'
 import {
   BAND_LABELS,
   formatQuantity,
+  isSettled,
   outstanding,
   providerLabel,
   visibleLines,
@@ -29,13 +34,25 @@ export interface StatementViewProps {
   statement: Statement
   /** Transaction ids left off (reversed journals and their reversals). */
   hidden: ReadonlySet<string>
+  /** Only this patient's invoices; undefined for everyone on the file. */
+  patientId?: string
 }
 
-export function StatementView({ statement: s, hidden }: StatementViewProps) {
+export function StatementView({
+  statement: s,
+  hidden,
+  patientId,
+}: StatementViewProps) {
   const providers = new Map(s.providers.map((p) => [p.id, p]))
-  const visits = visitsOf(s.invoices, s.patients)
-  const unallocated = visibleLines(s.unallocated, hidden)
+  const invoices = patientId
+    ? s.invoices.filter((i) => i.patient_id === patientId)
+    : s.invoices
+  const visits = visitsOf(invoices, s.patients)
+  const filtered = s.patients.find((p) => p.patient_id === patientId)
+  // Unallocated money belongs to the account, not to one patient.
+  const unallocated = patientId ? [] : visibleLines(s.unallocated, hidden)
   const empty = s.invoices.length === 0 && s.unallocated.length === 0
+  const expansion = useExpansion()
 
   return (
     <article className="statement flex flex-col gap-6" aria-label="Statement">
@@ -54,15 +71,49 @@ export function StatementView({ statement: s, hidden }: StatementViewProps) {
             aria-labelledby="visits-heading"
             className="flex flex-col gap-4"
           >
-            <h2 id="visits-heading" className="sr-only">
-              Invoices by visit
-            </h2>
+            <div className="no-print flex flex-wrap items-center justify-between gap-3">
+              <h2
+                id="visits-heading"
+                className="text-base font-semibold text-text"
+              >
+                Invoices by visit
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => expansion.setAll(invoices, true)}
+                >
+                  Expand all
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => expansion.setAll(invoices, false)}
+                >
+                  Collapse all
+                </Button>
+              </div>
+            </div>
+            {filtered && (
+              <p role="status" className="text-sm text-muted">
+                Showing {fullName(filtered)}&rsquo;s invoices only:{' '}
+                <span className="tabular-nums text-text">
+                  {formatRand(invoices.reduce((n, i) => n + outstanding(i), 0))}
+                </span>{' '}
+                outstanding. The totals and ageing are for the whole account.
+              </p>
+            )}
+            {visits.length === 0 && (
+              <p className="rounded-lg border border-border bg-panel px-5 py-8 text-center text-sm text-muted">
+                No invoices for this patient on this statement.
+              </p>
+            )}
             {visits.map((v) => (
               <VisitSection
                 key={v.key}
                 visit={v}
                 providers={providers}
                 hidden={hidden}
+                expansion={expansion}
               />
             ))}
           </section>
@@ -263,14 +314,29 @@ function Total({
 // Visits and invoices
 // -----------------------------------------------------------------------------
 
+/** Which invoices are open. Settled invoices start collapsed. */
+function useExpansion() {
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  return {
+    isOpen: (inv: StatementInvoice) => open[inv.id] ?? !isSettled(inv),
+    toggle: (inv: StatementInvoice) =>
+      setOpen((o) => ({ ...o, [inv.id]: !(o[inv.id] ?? !isSettled(inv)) })),
+    setAll: (invs: ReadonlyArray<StatementInvoice>, value: boolean) =>
+      setOpen(Object.fromEntries(invs.map((i) => [i.id, value]))),
+  }
+}
+type Expansion = ReturnType<typeof useExpansion>
+
 function VisitSection({
   visit,
   providers,
   hidden,
+  expansion,
 }: {
   visit: Visit
   providers: Map<string, StatementProvider>
   hidden: ReadonlySet<string>
+  expansion: Expansion
 }) {
   const p = visit.patient
   const headingId = `visit-${visit.key.replace(/[^a-z0-9]/gi, '')}`
@@ -303,6 +369,8 @@ function VisitSection({
             inv={inv}
             providers={providers}
             hidden={hidden}
+            open={expansion.isOpen(inv)}
+            onToggle={() => expansion.toggle(inv)}
           />
         ))}
       </div>
@@ -314,43 +382,76 @@ function InvoiceBlock({
   inv,
   providers,
   hidden,
+  open,
+  onToggle,
 }: {
   inv: StatementInvoice
   providers: Map<string, StatementProvider>
   hidden: ReadonlySet<string>
+  open: boolean
+  onToggle: () => void
 }) {
   const lines = visibleLines(inv.transactions, hidden)
+  const detailsId = `invoice-${inv.id}-details`
+  const Chevron = open ? ChevronDown : ChevronRight
+  const title = (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={detailsId}
+      onClick={onToggle}
+      className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-left font-semibold text-text hover:bg-raised"
+    >
+      <Chevron
+        className="no-print size-4 shrink-0 text-muted"
+        aria-hidden="true"
+      />
+      Invoice <span className="tabular-nums">{inv.invoice_no}</span>
+      <span className="font-normal text-muted">
+        {' '}
+        · {formatDate(inv.invoice_date)}
+      </span>
+      {isSettled(inv) && (
+        <span className="ml-2 rounded border border-border-strong px-1.5 py-0.5 text-xs font-medium text-muted">
+          Settled
+        </span>
+      )}
+    </button>
+  )
   return (
     <div className="statement-invoice flex flex-col gap-4 p-5">
-      <InvoiceHeader inv={inv} providers={providers} />
-      <InvoiceLines lines={inv.lines} providers={providers} />
-      {lines.length > 0 && (
-        <TransactionsTable
-          lines={lines}
-          caption={`Transactions on invoice ${inv.invoice_no}`}
-        />
-      )}
+      <InvoiceHeader inv={inv} providers={providers} title={title} />
+      {/* Collapsed on screen only: print always shows the detail. */}
+      <div
+        id={detailsId}
+        hidden={!open}
+        className="statement-invoice-details flex flex-col gap-4"
+      >
+        <InvoiceLines lines={inv.lines} providers={providers} />
+        {lines.length > 0 && (
+          <TransactionsTable
+            lines={lines}
+            caption={`Transactions on invoice ${inv.invoice_no}`}
+          />
+        )}
+      </div>
     </div>
   )
 }
 
-export function InvoiceHeader({
+function InvoiceHeader({
   inv,
   providers,
+  title,
 }: {
   inv: StatementInvoice
   providers: Map<string, StatementProvider>
+  title: ReactNode
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        <p className="font-semibold text-text">
-          Invoice <span className="tabular-nums">{inv.invoice_no}</span>
-          <span className="font-normal text-muted">
-            {' '}
-            · {formatDate(inv.invoice_date)}
-          </span>
-        </p>
+        {title}
         <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
           <Meta label="Treating doctor">
             {providerLabel(

@@ -1,16 +1,40 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { Alert } from '#/components/ui/Field'
+import { StatementControls } from '#/features/billing/StatementControls'
 import { StatementView } from '#/features/billing/StatementView'
 import { useStatement } from '#/features/billing/api'
-import { reversedJournalIds } from '#/features/billing/statement'
+import {
+  asOfError,
+  reversedJournalIds,
+  todayInSA,
+} from '#/features/billing/statement'
+import type { ControlValues } from '#/features/billing/StatementControls'
 import { ApiError, errorMessage } from '#/lib/api/errors'
 import { requirePermission } from '#/lib/auth/guards'
 import { useFollowAccount } from '#/lib/ws/useRealtime'
 
+/** Ids and dates only: no patient details in the URL. */
+interface StatementSearch {
+  /** yyyy-mm-dd; omitted = today. */
+  as_of?: string
+  /** One patient on the file; omitted = everyone. */
+  patient?: string
+  /** "shown" to include reversed journals (hidden by default). */
+  reversed?: 'shown'
+}
+
 export const Route = createFileRoute('/_app/patients/statement/$accountId')({
+  validateSearch: (s: Record<string, unknown>): StatementSearch => ({
+    as_of:
+      typeof s.as_of === 'string' && !asOfError(s.as_of, todayInSA())
+        ? s.as_of
+        : undefined,
+    patient: typeof s.patient === 'string' ? s.patient : undefined,
+    reversed: s.reversed === 'shown' ? 'shown' : undefined,
+  }),
   beforeLoad: () => requirePermission({ anyOf: ['billing.view'] }),
   head: () => ({ meta: [{ title: 'Statement · doctr8' }] }),
   component: StatementPage,
@@ -18,9 +42,28 @@ export const Route = createFileRoute('/_app/patients/statement/$accountId')({
 
 function StatementPage() {
   const { accountId } = Route.useParams()
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
   // Payments, remittances and claims on this account refresh the statement.
   useFollowAccount(accountId)
-  const statement = useStatement(accountId, {})
+  const today = todayInSA()
+  const statement = useStatement(accountId, { asOf: search.as_of })
+  const values: ControlValues = {
+    asOf: search.as_of ?? today,
+    patientId: search.patient,
+    showReversed: search.reversed === 'shown',
+  }
+  const change = (next: Partial<ControlValues>) => {
+    const v = { ...values, ...next }
+    void navigate({
+      search: {
+        as_of: v.asOf === today ? undefined : v.asOf,
+        patient: v.patientId,
+        reversed: v.showReversed ? 'shown' : undefined,
+      },
+      replace: true,
+    })
+  }
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
@@ -62,10 +105,34 @@ function StatementPage() {
           Loading statement…
         </p>
       ) : (
-        <StatementView
-          statement={statement.data}
-          hidden={reversedJournalIds(statement.data)}
-        />
+        <>
+          <StatementControls
+            values={values}
+            today={today}
+            patients={statement.data.patients}
+            onChange={change}
+          />
+          {statement.isPlaceholderData && (
+            <p role="status" className="text-sm text-muted">
+              Updating…
+            </p>
+          )}
+          <StatementView
+            statement={statement.data}
+            hidden={
+              values.showReversed
+                ? new Set<string>()
+                : reversedJournalIds(statement.data)
+            }
+            patientId={
+              statement.data.patients.some(
+                (p) => p.patient_id === values.patientId,
+              )
+                ? values.patientId
+                : undefined
+            }
+          />
+        </>
       )}
     </div>
   )

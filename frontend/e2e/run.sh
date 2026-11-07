@@ -82,7 +82,7 @@ curl -sf -X PUT "$API/patients/$INACTIVE/status" -H 'content-type: application/j
 # A family file: Practice A switches to family-per-file just for this one.
 patch_mode() { curl -sf -X PATCH "$API/tenants/current" -H 'content-type: application/json' -H "authorization: Bearer $TA" -d "{\"file_mode\":\"$1\"}" >/dev/null; }
 patch_mode family_per_file
-post /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Sipho\",\"last_name\":\"Dube\"}}},{\"person\":{\"new\":{\"first_name\":\"Ayanda\",\"last_name\":\"Dube\",\"mobile\":\"0821110000\"}},\"dependant_code\":\"01\"}],\"guarantor\":{\"patient\":0},\"medical_aid\":{\"new\":{\"scheme_id\":\"$SCHEME\",\"plan_id\":\"$PLAN\",\"membership_number\":\"FAM-9\",\"main_member\":{\"patient\":0}}}}" "$TA" >/dev/null
+DUBE=$(post /patient-files "{\"patients\":[{\"person\":{\"new\":{\"first_name\":\"Sipho\",\"last_name\":\"Dube\"}}},{\"person\":{\"new\":{\"first_name\":\"Ayanda\",\"last_name\":\"Dube\",\"mobile\":\"0821110000\"}},\"dependant_code\":\"01\"}],\"guarantor\":{\"patient\":0},\"medical_aid\":{\"new\":{\"scheme_id\":\"$SCHEME\",\"plan_id\":\"$PLAN\",\"membership_number\":\"FAM-9\",\"main_member\":{\"patient\":0}}}}" "$TA")
 patch_mode patient_per_file
 
 # Billing: a statement with two visits on a medical aid file.
@@ -119,6 +119,13 @@ api POST /liability-transfers "{\"invoice_id\":\"$NEW\",\"from\":\"medical_aid\"
 WRITE_OFF=$(curl -sf "$API/journal-reason-types" -H "authorization: Bearer $TA" | jq -r '.[] | select(.code=="small_balance_write_off") | .id')
 J=$(api POST /journals "{\"account_id\":\"$STM_ACC\",\"reason_type_id\":\"$WRITE_OFF\",\"notes\":\"x\",\"entries\":[{\"invoice_id\":\"$NEW\",\"bucket\":\"patient\",\"amount_cents\":-500}]}" | jq -r .id)
 api POST /transactions/$J/reverse '{"notes":"posted in error"}' >/dev/null
+# The Dube family file: one visit each for the main member and the dependant.
+DUBE_ACC=$(jq -r .id <<<"$DUBE")
+for code in 00 01; do
+  P_ID=$(jq -r --arg c "$code" '.patients[] | select(.dependant_code == $c) | .patient_id' <<<"$DUBE")
+  api POST /invoices "$(jq -nc --arg a "$DUBE_ACC" --arg p "$P_ID" --arg d "$DOC" --arg c "$ROOMS" \
+    '{account_id:$a, patient_id:$p, treating_provider_id:$d, service_centre_id:$c, lines:[{tariff_code:"0190", unit_price_cents:52000, icd10_codes:["J06.9"]}]}')" >/dev/null
+done
 api POST /payments "{\"account_id\":\"$STM_ACC\",\"method\":\"eft\",\"amount_cents\":5000,\"reference\":\"EFT-1\"}" >/dev/null
 
 echo "== starting frontend on :$WEB_PORT"

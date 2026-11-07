@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  asOfError,
+  todayInSA,
   formatQuantity,
   isSettled,
   outstanding,
@@ -179,5 +181,20 @@ describe('labels', () => {
   it('quantities drop trailing zeros', () => {
     expect(formatQuantity('1.00')).toBe('1')
     expect(formatQuantity('2.5')).toBe('2.5')
+  })
+})
+
+describe('statement date', () => {
+  it('uses the South African date', () => {
+    // 23:30 UTC is already the next day in Johannesburg (UTC+2).
+    expect(todayInSA(new Date('2026-11-07T23:30:00Z'))).toBe('2026-11-08')
+    expect(todayInSA(new Date('2026-11-07T21:59:00Z'))).toBe('2026-11-07')
+  })
+
+  it('rejects future and malformed dates', () => {
+    expect(asOfError('2026-11-07', '2026-11-07')).toBeNull()
+    expect(asOfError('2026-11-08', '2026-11-07')).toMatch(/future/)
+    expect(asOfError('', '2026-11-07')).toMatch(/valid date/)
+    expect(asOfError('1899-01-01', '2026-11-07')).toMatch(/year/)
   })
 })

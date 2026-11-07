@@ -115,3 +115,21 @@ export function formatQuantity(q: string): string {
   const n = Number(q)
   return Number.isFinite(n) ? String(n) : q
 }
+
+/** Today's date in South Africa as yyyy-mm-dd (statements are SAST). */
+export function todayInSA(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+/** Why a "statement as of" date can't be used, or null if it can. */
+export function asOfError(value: string, today: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'Enter a valid date'
+  if (value > today) return "A statement can't be dated in the future"
+  if (value < '2000-01-01') return 'Check the year'
+  return null
+}
