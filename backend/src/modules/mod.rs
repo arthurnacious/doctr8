@@ -1,4 +1,5 @@
 pub mod access;
+pub mod people;
 
 use axum::{Router, routing::get};
 
@@ -8,4 +9,5 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(|| async { "ok" }))
         .merge(access::router())
+        .merge(people::router())
 }

@@ -53,7 +53,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code) = self.parts();
         if let Self::Internal(err) = &self {
-            tracing::error!(error = ?err, "internal error");
+            log_internal(err);
         }
         let body = json!({ "error": { "code": code, "message": self.to_string() } });
         (status, Json(body)).into_response()
@@ -66,10 +66,56 @@ impl From<anyhow::Error> for AppError {
     }
 }
 
+/// Log an internal error WITHOUT personal information.
+///
+/// Postgres error messages and DETAIL lines can echo row values ("Failing row
+/// contains (...)", "invalid input syntax for type date: \"...\""), so for
+/// database errors we only log the SQLSTATE, constraint and table.
+fn log_internal(err: &anyhow::Error) {
+    match err.downcast_ref::<sqlx::Error>() {
+        Some(sqlx::Error::Database(db)) => tracing::error!(
+            sqlstate = db.code().as_deref().unwrap_or("?"),
+            constraint = db.constraint().unwrap_or("-"),
+            table = db.table().unwrap_or("-"),
+            "database error"
+        ),
+        Some(other) => tracing::error!(kind = sqlx_error_kind(other), "database error"),
+        None => tracing::error!(error = %err, "internal error"),
+    }
+}
+
+fn sqlx_error_kind(err: &sqlx::Error) -> &'static str {
+    match err {
+        sqlx::Error::Configuration(_) => "configuration",
+        sqlx::Error::Io(_) => "io",
+        sqlx::Error::Tls(_) => "tls",
+        sqlx::Error::Protocol(_) => "protocol",
+        sqlx::Error::RowNotFound => "row_not_found",
+        sqlx::Error::ColumnNotFound(_) => "column_not_found",
+        sqlx::Error::ColumnDecode { .. } => "column_decode",
+        sqlx::Error::Decode(_) => "decode",
+        sqlx::Error::PoolTimedOut => "pool_timed_out",
+        sqlx::Error::PoolClosed => "pool_closed",
+        _ => "other",
+    }
+}
+
 impl From<sqlx::Error> for AppError {
     fn from(err: sqlx::Error) -> Self {
         if let sqlx::Error::Database(db) = &err {
             match db.code().as_deref() {
+                // Our own file-mode rule violations from triggers (D8xxx).
+                // Messages are written by us and contain no personal data.
+                Some(code) if code.starts_with("D8") => {
+                    return Self::Conflict(db.message().to_owned());
+                }
+                // check_violation — the service should have caught it first.
+                Some("23514") => {
+                    return Self::Validation(format!(
+                        "A value is not allowed ({})",
+                        db.constraint().unwrap_or("check")
+                    ));
+                }
                 // unique_violation
                 Some("23505") => {
                     return Self::Conflict("A record with these details already exists".into());

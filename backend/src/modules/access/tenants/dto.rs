@@ -7,6 +7,45 @@ use crate::common::{
     validation::{self, double_option},
 };
 
+/// How a practice organises patients into billing files (accounts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileMode {
+    /// One patient per account.
+    PatientPerFile,
+    /// Many patients per account, exactly one main member (00).
+    FamilyPerFile,
+    /// A new account for every visit.
+    DebtorPerVisit,
+}
+
+impl FileMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PatientPerFile => "patient_per_file",
+            Self::FamilyPerFile => "family_per_file",
+            Self::DebtorPerVisit => "debtor_per_visit",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::PatientPerFile => "patient per file",
+            Self::FamilyPerFile => "family per file",
+            Self::DebtorPerVisit => "new debtor per visit",
+        }
+    }
+
+    pub fn from_db(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "patient_per_file" => Ok(Self::PatientPerFile),
+            "family_per_file" => Ok(Self::FamilyPerFile),
+            "debtor_per_visit" => Ok(Self::DebtorPerVisit),
+            other => anyhow::bail!("unknown file mode in database: {other}"),
+        }
+    }
+}
+
 /// A practice as shown in the practice picker.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct PracticeSummary {
@@ -22,6 +61,7 @@ pub struct TenantResponse {
     pub name: String,
     pub pcns_number: Option<String>,
     pub status: String,
+    pub file_mode: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -60,11 +100,16 @@ pub struct UpdateTenantRequest {
     /// Omit to leave unchanged, `null` to clear.
     #[serde(default, deserialize_with = "double_option")]
     pub pcns_number: Option<Option<String>>,
+    /// Applies to accounts opened from now on; existing accounts keep the
+    /// mode they were opened under.
+    #[serde(default)]
+    pub file_mode: Option<FileMode>,
 }
 
 pub struct TenantChanges {
     pub name: Option<String>,
     pub pcns_number: Option<Option<String>>,
+    pub file_mode: Option<FileMode>,
 }
 
 impl UpdateTenantRequest {
@@ -77,6 +122,7 @@ impl UpdateTenantRequest {
                 Some(Some(v)) if v.trim().is_empty() => Some(None),
                 Some(Some(v)) => Some(Some(validation::pcns_number(&v)?)),
             },
+            file_mode: self.file_mode,
         })
     }
 }

@@ -20,6 +20,7 @@ backend/
     common/     errors, RLS-scoped transactions, JWT extractors, Require<P> guard
     modules/
       access/   auth, tenants, users, roles (mod/handler/service/dto/repository)
+      people/   persons, memberships, accounts, patients
   tests/e2e/    end-to-end suite
 frontend/       (coming)
 ```
@@ -76,9 +77,25 @@ tests/e2e/run.sh        # end-to-end: throwaway Postgres + migrations + API + cu
 `run.sh` needs `initdb`, `pg_ctl`, `psql`, `curl` and `jq` on `PATH`. The API
 runs as `doctr8_app`, so row-level security is exercised for real.
 
+## Patient data
+
+- Never log names, ID numbers, contact details or addresses — UUIDs only.
+  Request spans record method + path (no query strings); database errors are
+  logged as SQLSTATE/constraint/table only. `tests/e2e/run.sh` fails if test
+  patients' details appear in the debug log.
+- Person search is `POST /persons/search` so search terms stay out of URLs.
+
+## File modes
+
+Each practice has a `file_mode` (`patient_per_file`, `family_per_file`,
+`debtor_per_visit`). Every account is stamped with the mode in force when it
+was opened and keeps it; changing the practice's mode only affects new
+accounts. Rules are checked in `people::accounts::service::check_file_rules`
+and re-checked at commit by deferred triggers (`app.validate_account`).
+
 ## Domains
 
 - [x] Practices & access — schema + `backend/src/modules/access`
-- [ ] Patients
+- [x] Patients & medical aid — `0002_patients_and_medical_aid.sql` + `backend/src/modules/people`
 - [ ] Booking
 - [ ] Billing

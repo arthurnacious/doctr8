@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # End-to-end test for the access module.
 # Spins up a throwaway PostgreSQL cluster, applies migrations, starts the API
-# as doctr8_app (RLS enforced), runs tests/e2e/api.sh, then tears it all down.
+# as doctr8_app (RLS enforced), runs every suite, then tears it all down.
+# The API runs with debug logging and the log is checked for test patients'
+# personal details afterwards.
 # Needs: initdb, pg_ctl, psql, curl, jq on PATH.
 set -euo pipefail
 
@@ -30,14 +32,29 @@ $PSQL -d doctr8 -c "ALTER ROLE doctr8_app LOGIN PASSWORD 'e2e'"
 
 DATABASE_URL="postgres://doctr8_app:e2e@localhost/doctr8?host=$WORK&port=$PORT" \
 JWT_SECRET="e2e-secret-e2e-secret-e2e-secret-e2e" \
-BIND_ADDR="127.0.0.1:$API_PORT" COOKIE_SECURE=false RUST_LOG=warn \
+BIND_ADDR="127.0.0.1:$API_PORT" COOKIE_SECURE=false RUST_LOG=debug \
   "$ROOT/target/debug/doctr8-api" >"$WORK/api.log" 2>&1 &
 SRV=$!
 
 for _ in $(seq 100); do curl -sf "127.0.0.1:$API_PORT/health" >/dev/null && break; sleep 0.1; done
 
 set +e
-"$ROOT/tests/e2e/api.sh" "http://127.0.0.1:$API_PORT" "$PSQL -d doctr8" | tee "$WORK/result"
-grep -q 'RESULT: .* 0 failed' "$WORK/result"; status=$?
-[[ $status -ne 0 ]] && { echo "--- api log:"; cat "$WORK/api.log"; }
+status=0
+for suite in access people; do
+  echo "##### $suite"
+  "$ROOT/tests/e2e/$suite.sh" "http://127.0.0.1:$API_PORT" "$PSQL -d doctr8" | tee "$WORK/$suite.result"
+  grep -q 'RESULT: .* 0 failed' "$WORK/$suite.result" || status=1
+done
+
+# Personal details used by the suites must never reach the API log.
+echo "##### privacy"
+PII='Nkosi|Thandi|Dlamini|Mokoena|9002150123088|8507045000086|8001015009087|1203105000086|0825551234|thabo@example'
+if grep -Eiq "$PII" "$WORK/api.log"; then
+  echo "  FAIL personal details found in API log:"; grep -Eio "$PII" "$WORK/api.log" | sort | uniq -c
+  status=1
+else
+  echo "  PASS no personal details in $(wc -l < "$WORK/api.log") lines of debug log"
+fi
+
+[[ $status -ne 0 ]] && { echo "--- api log (tail):"; tail -50 "$WORK/api.log"; }
 exit $status

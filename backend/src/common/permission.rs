@@ -60,6 +60,10 @@ define_permissions! {
     RolesView      => "roles.view"      : "View roles and their permissions",
     RolesManage    => "roles.manage"    : "Create, edit and delete roles",
     RolesAssign    => "roles.assign"    : "Assign roles to members",
+    PatientsView   => "patients.view"   : "View patient demographics and files",
+    PatientsManage => "patients.manage" : "Register patients and edit their details",
+    AccountsView   => "accounts.view"   : "View accounts and medical aid details",
+    AccountsManage => "accounts.manage" : "Edit accounts and medical aid memberships",
 }
 
 impl Serialize for Permission {

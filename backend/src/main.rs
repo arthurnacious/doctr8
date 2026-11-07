@@ -30,9 +30,14 @@ async fn main() -> anyhow::Result<()> {
     common::permission::verify_catalogue(&pool).await?;
 
     let bind_addr = config.bind_addr.clone();
+    // Spans record method + path only. Query strings and headers are never
+    // logged: they can carry patient details or tokens.
+    let trace = TraceLayer::new_for_http().make_span_with(|req: &axum::http::Request<_>| {
+        tracing::info_span!("http", method = %req.method(), path = %req.uri().path())
+    });
     let app = modules::router()
         .with_state(AppState::new(pool, config))
-        .layer(TraceLayer::new_for_http());
+        .layer(trace);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
