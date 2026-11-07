@@ -359,6 +359,7 @@ dependencies = [
  "axum-extra",
  "base64",
  "chrono",
+ "dotenvy",
  "jsonwebtoken",
  "rand",
  "serde",

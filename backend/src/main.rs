@@ -15,11 +15,21 @@ use crate::{config::Config, state::AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Local development convenience: load backend/.env if present. Variables
+    // already set in the environment always win.
+    let _ = dotenvy::dotenv();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,doctr8_api=debug".into()),
         )
         .init();
+
+    // `doctr8-api migrate` applies pending migrations as the schema owner,
+    // never as the runtime role.
+    if std::env::args().nth(1).as_deref() == Some("migrate") {
+        return migrate().await;
+    }
 
     let config = Config::from_env()?;
 
@@ -50,6 +60,22 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    Ok(())
+}
+
+/// Apply pending migrations from ./migrations (embedded at build time).
+/// Tracks state in `_sqlx_migrations`, so it's interchangeable with
+/// `sqlx migrate run`.
+async fn migrate() -> anyhow::Result<()> {
+    let url = std::env::var("MIGRATION_DATABASE_URL")
+        .context("MIGRATION_DATABASE_URL must be set (schema owner, not doctr8_app)")?;
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .context("connecting as migration user")?;
+    sqlx::migrate!("./migrations").run(&pool).await.context("applying migrations")?;
+    tracing::info!("migrations up to date");
     Ok(())
 }
 

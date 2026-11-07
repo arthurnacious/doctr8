@@ -56,15 +56,36 @@ frontend/       (coming)
 
 ## Database
 
-Run migrations as the schema owner (not `doctr8_app`), e.g. with sqlx:
+Two roles, so the API can never bypass row-level security:
+
+| Role | Used by | Privileges |
+|------|---------|------------|
+| `doctr8_owner` | migrations | owns the database, `BYPASSRLS`, `CREATEROLE` |
+| `doctr8_app` | the API | `NOSUPERUSER NOBYPASSRLS`, DML grants only |
+
+First-time setup (as a Postgres superuser):
 
 ```sh
+psql -U postgres <<'SQL'
+CREATE ROLE doctr8_owner LOGIN CREATEROLE BYPASSRLS PASSWORD '<owner password>';
+CREATE DATABASE doctr8 OWNER doctr8_owner;
+REVOKE ALL ON DATABASE doctr8 FROM PUBLIC;
+SQL
+
 cd backend
-sqlx migrate run
+cp .env.example .env          # then fill in passwords and JWT_SECRET
+cargo run -- migrate          # applies migrations as doctr8_owner; creates doctr8_app
+
+psql -U postgres -d doctr8 <<'SQL'
+ALTER ROLE doctr8_app LOGIN PASSWORD '<app password>';
+GRANT CONNECT ON DATABASE doctr8 TO doctr8_app;
+SQL
+
+cargo run                     # API on BIND_ADDR, reading backend/.env
 ```
 
-`doctr8_app` is created `NOLOGIN` by the migration; grant it `LOGIN` and a
-password in your environment.
+`cargo run -- migrate` uses `MIGRATION_DATABASE_URL` and the same
+`_sqlx_migrations` table as `sqlx migrate run`, so either works.
 
 ## Testing
 
