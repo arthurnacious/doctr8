@@ -6,10 +6,14 @@ use super::{
     dto::{NewPerson, PersonFile, PersonInput, PersonResponse, PersonSummary, SearchPersonsRequest},
     repository as repo,
 };
-use crate::common::{
-    auth::TenantUser,
-    db,
-    error::{AppError, AppResult, on_unique},
+use crate::{
+    common::{
+        auth::TenantUser,
+        db,
+        error::{AppError, AppResult, on_unique},
+        ws::EventBus,
+    },
+    modules::people::accounts,
 };
 
 const PERSON_UNIQUES: &[(&str, &str)] = &[(
@@ -20,11 +24,12 @@ const PERSON_UNIQUES: &[(&str, &str)] = &[(
 #[derive(Clone)]
 pub struct PersonsService {
     pool: PgPool,
+    bus: EventBus,
 }
 
 impl PersonsService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, bus: EventBus) -> Self {
+        Self { pool, bus }
     }
 
     pub async fn create(&self, actor: &TenantUser, input: PersonInput) -> AppResult<PersonResponse> {
@@ -49,6 +54,8 @@ impl PersonsService {
             .await
             .map_err(on_unique(PERSON_UNIQUES))?
             .ok_or(AppError::NotFound("person"))?;
+        let files = accounts::repository::involving_person(&mut tx, actor.tenant_id, id).await?;
+        accounts::service::announce_files(&mut tx, &self.bus, actor.tenant_id, files).await?;
         tx.commit().await?;
         Ok(person)
     }

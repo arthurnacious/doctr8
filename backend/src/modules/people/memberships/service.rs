@@ -15,8 +15,9 @@ use crate::{
         auth::TenantUser,
         db,
         error::{AppError, AppResult, on_unique},
+        ws::EventBus,
     },
-    modules::people::persons,
+    modules::people::{accounts, persons},
 };
 
 const MEMBERSHIP_UNIQUES: &[(&str, &str)] = &[(
@@ -27,11 +28,12 @@ const MEMBERSHIP_UNIQUES: &[(&str, &str)] = &[(
 #[derive(Clone)]
 pub struct MembershipsService {
     pool: PgPool,
+    bus: EventBus,
 }
 
 impl MembershipsService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, bus: EventBus) -> Self {
+        Self { pool, bus }
     }
 
     pub async fn schemes(&self, actor: &TenantUser) -> AppResult<Vec<SchemeResponse>> {
@@ -93,6 +95,8 @@ impl MembershipsService {
         repo::update(&mut tx, actor.tenant_id, id, &changes)
             .await
             .map_err(on_unique(MEMBERSHIP_UNIQUES))?;
+        let files = accounts::repository::using_membership(&mut tx, actor.tenant_id, id).await?;
+        accounts::service::announce_files(&mut tx, &self.bus, actor.tenant_id, files).await?;
         let membership = load(&mut tx, actor.tenant_id, id).await?;
         tx.commit().await?;
         Ok(membership)

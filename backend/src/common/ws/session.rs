@@ -195,6 +195,13 @@ mod tests {
     }
 
     #[test]
+    fn patient_events_need_patients_view_not_billing() {
+        let e = Event::new(TENANT, EventKind::PatientFileChanged, ACCOUNT).account(ACCOUNT);
+        assert!(session(&[Permission::PatientsView]).wants(&e), "tenant-wide: lists refresh too");
+        assert!(!session(&[Permission::BillingView]).wants(&e));
+    }
+
+    #[test]
     fn events_require_their_permission() {
         let s = session(&[Permission::PatientsView, Permission::AccountsView]);
         assert!(!s.wants(&event(EventKind::ClaimStatusChanged, None)));

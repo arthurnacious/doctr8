@@ -19,6 +19,10 @@ pub enum EventKind {
     RemittanceAllocated,
     #[serde(rename = "account.balance_changed")]
     AccountBalanceChanged,
+    /// Anything shown on a patient file changed: people, codes, status,
+    /// guarantor or medical aid. `id` and `account_id` are the account.
+    #[serde(rename = "patient_file.changed")]
+    PatientFileChanged,
 }
 
 impl EventKind {
@@ -29,6 +33,7 @@ impl EventKind {
         Self::RemittanceReceived,
         Self::RemittanceAllocated,
         Self::AccountBalanceChanged,
+        Self::PatientFileChanged,
     ];
 
     /// A connection only receives the event if its token holds this.
@@ -40,13 +45,17 @@ impl EventKind {
             | Self::RemittanceReceived
             | Self::RemittanceAllocated
             | Self::AccountBalanceChanged => Permission::BillingView,
+            Self::PatientFileChanged => Permission::PatientsView,
         }
     }
 
     /// Delivered to every connection in the practice (dashboards, claim
     /// queues). Otherwise only to connections subscribed to the event's account.
     pub const fn tenant_wide(self) -> bool {
-        matches!(self, Self::ClaimStatusChanged | Self::RemittanceReceived | Self::RemittanceAllocated)
+        matches!(
+            self,
+            Self::ClaimStatusChanged | Self::RemittanceReceived | Self::RemittanceAllocated | Self::PatientFileChanged
+        )
     }
 }
 
@@ -130,8 +139,10 @@ mod tests {
         assert!(!EventKind::AccountBalanceChanged.tenant_wide(), "balances only go to open account screens");
         assert!(!EventKind::InvoiceCreated.tenant_wide());
         for k in EventKind::ALL {
-            assert_eq!(k.required_permission(), Permission::BillingView);
+            let expected = if *k == EventKind::PatientFileChanged { Permission::PatientsView } else { Permission::BillingView };
+            assert_eq!(k.required_permission(), expected, "{k:?}");
         }
+        assert!(EventKind::PatientFileChanged.tenant_wide(), "patient lists refresh too");
     }
 
     #[test]

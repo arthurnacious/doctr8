@@ -147,6 +147,27 @@ req POST /persons/search "$T" '{"query":"01"}'; check "search by account number"
 check "search results omit ID numbers" null "$(jq -r '.[0].id_number' <<<"$BODY")"
 req POST /persons/search "$T" '{"query":"%_"}'; check "LIKE wildcards are literal" 0 "$(jq length <<<"$BODY")"
 
+echo "== patient file events (WebSocket)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+"$ROOT/target/debug/examples/ws_probe" "${B/http:/ws:}/ws" "$T" > "$J/ws_people" 2>/dev/null & PROBE=$!
+for _ in $(seq 50); do [[ -s $J/ws_people ]] && break; sleep 0.1; done
+req GET /persons/$PERSON1 "$T"
+req PUT /persons/$PERSON1 "$T" "$(jq -c '{first_name, last_name, id_number, mobile: "0825550000"}' <<<"$BODY")"
+check "person edited" 0825550000 "$(j .mobile)"
+req GET /accounts/$ACC_FAM "$T"; FAM_PATIENT=$(j '.patients[] | select(.dependant_code=="05") | .patient_id')
+req PATCH /patients/$FAM_PATIENT "$T" '{"dependant_code":"06"}'; check "dependant renumbered" 06 "$(j .dependant_code)"
+req POST /patient-files "$T" '{"patients":[{"person":{"new":{"first_name":"Event","last_name":"Probe"}}}],"guarantor":{"patient":0}}'; EV_ACC=$(j .id)
+req PATCH /patients/$FAM_PATIENT "$T" '{"dependant_code":"00"}'; check "rejected edit (rolled back)" 422 $CODE
+sleep 0.5; kill $PROBE 2>/dev/null; wait $PROBE 2>/dev/null
+pf() { jq -r 'select(.type=="event" and .event=="patient_file.changed") | .account_id' "$J/ws_people"; }
+check "person edit announces every file they're on as a patient" 2 "$(pf | grep -cE "^($ACC1|$ACC_VISIT)$")"
+GUARANTEED=$($PSQL -tAc "SELECT a.id FROM accounts a JOIN patients pt ON pt.account_id = a.id JOIN persons p ON p.id = pt.person_id WHERE p.first_name = 'Lwazi'")
+check "...and the file they pay for as guarantor" 1 "$(pf | grep -c "^$GUARANTEED$")"
+check "renumbering announces the family file" 1 "$(pf | grep -c "^$ACC_FAM$")"
+check "new file announced" 1 "$(pf | grep -c "^$EV_ACC$")"
+check "rejected edits announce nothing (3 + 1 + 1 events in total)" 5 "$(pf | wc -l | tr -d ' ')"
+check "events carry ids, not names" 0 "$(grep -cE 'Thandi|Nkosi|Probe' "$J/ws_people")"
+
 echo "== patient list (POST /patients/search)"
 req POST /patients/search "$T" '{"query":"nkosi"}'
 check "name search finds every Nkosi patient row" 3 "$(j .total)"

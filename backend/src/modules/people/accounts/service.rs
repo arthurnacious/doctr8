@@ -12,6 +12,7 @@ use crate::{
         auth::TenantUser,
         db,
         error::{AppError, AppResult},
+        ws::{Event, EventBus, EventKind},
     },
     modules::{
         access::tenants::dto::FileMode,
@@ -22,11 +23,12 @@ use crate::{
 #[derive(Clone)]
 pub struct AccountsService {
     pool: PgPool,
+    bus: EventBus,
 }
 
 impl AccountsService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, bus: EventBus) -> Self {
+        Self { pool, bus }
     }
 
     pub async fn get(&self, actor: &TenantUser, id: Uuid) -> AppResult<AccountResponse> {
@@ -60,6 +62,7 @@ impl AccountsService {
 
         repo::update(&mut tx, t, id, req.guarantor_person_id, req.membership_id, req.status.map(|s| s.as_str()))
             .await?;
+        announce_files(&mut tx, &self.bus, t, [id]).await?;
         let updated = load_account(&mut tx, t, id).await?;
         tx.commit().await?;
         Ok(updated)
@@ -87,6 +90,7 @@ impl AccountsService {
         check_file_rules(FileMode::from_db(&account.file_mode)?, principal, &slots, true)?;
 
         patients::repository::insert(&mut tx, t, req.person_id, id, &code, actor.user_id).await?;
+        announce_files(&mut tx, &self.bus, t, [id]).await?;
         let updated = load_account(&mut tx, t, id).await?;
         tx.commit().await?;
         Ok(updated)
@@ -176,6 +180,23 @@ pub fn default_dependant_code(person_id: Uuid, principal: Uuid, has_medical_aid:
 // -----------------------------------------------------------------------------
 // Helpers shared with the patients module
 // -----------------------------------------------------------------------------
+
+/// Tell open screens these files changed (delivered after COMMIT). Carries
+/// account ids only.
+pub async fn announce_files(
+    conn: &mut PgConnection,
+    bus: &EventBus,
+    tenant_id: Uuid,
+    account_ids: impl IntoIterator<Item = Uuid>,
+) -> AppResult<()> {
+    let mut seen = HashSet::new();
+    for id in account_ids {
+        if seen.insert(id) {
+            bus.publish(conn, &Event::new(tenant_id, EventKind::PatientFileChanged, id).account(id)).await?;
+        }
+    }
+    Ok(())
+}
 
 async fn find(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid) -> AppResult<AccountRow> {
     repo::find(conn, tenant_id, id).await?.ok_or(AppError::NotFound("account"))

@@ -137,3 +137,30 @@ pub async fn update(
     .await?;
     Ok(())
 }
+
+/// Accounts a person appears on: as a patient, the guarantor, or the main
+/// member of the account's medical aid.
+pub async fn involving_person(conn: &mut PgConnection, tenant_id: Uuid, person_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT DISTINCT a.id
+           FROM accounts a
+           LEFT JOIN medical_aid_memberships m ON m.tenant_id = a.tenant_id AND m.id = a.membership_id
+          WHERE a.tenant_id = $1
+            AND (a.guarantor_person_id = $2
+              OR m.main_member_person_id = $2
+              OR EXISTS (SELECT 1 FROM patients pt
+                          WHERE pt.tenant_id = a.tenant_id AND pt.account_id = a.id AND pt.person_id = $2))",
+    )
+    .bind(tenant_id)
+    .bind(person_id)
+    .fetch_all(conn)
+    .await
+}
+
+pub async fn using_membership(conn: &mut PgConnection, tenant_id: Uuid, membership_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar("SELECT id FROM accounts WHERE tenant_id = $1 AND membership_id = $2")
+        .bind(tenant_id)
+        .bind(membership_id)
+        .fetch_all(conn)
+        .await
+}

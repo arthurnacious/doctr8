@@ -16,6 +16,7 @@ use crate::{
         db,
         error::{AppError, AppResult, on_unique},
         validation,
+        ws::EventBus,
     },
     modules::{
         access::tenants::dto::FileMode,
@@ -39,11 +40,12 @@ const PATIENT_UNIQUES: &[(&str, &str)] = &[
 #[derive(Clone)]
 pub struct PatientsService {
     pool: PgPool,
+    bus: EventBus,
 }
 
 impl PatientsService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, bus: EventBus) -> Self {
+        Self { pool, bus }
     }
 
     /// The patient list: one search box, paged on the server, ID numbers masked.
@@ -91,6 +93,7 @@ impl PatientsService {
             return Err(AppError::NotFound("patient"));
         }
         let patient = find(&mut tx, t, id).await?;
+        accounts::service::announce_files(&mut tx, &self.bus, t, [patient.account_id]).await?;
         tx.commit().await?;
         Ok(patient)
     }
@@ -122,6 +125,7 @@ impl PatientsService {
         check_file_rules(FileMode::from_db(&account.file_mode)?, account.principal(), &slots, false)?;
 
         repo::update_code(&mut tx, t, id, &code).await.map_err(on_unique(PATIENT_UNIQUES))?;
+        accounts::service::announce_files(&mut tx, &self.bus, t, [patient.account_id]).await?;
         let patient = find(&mut tx, t, id).await?;
         tx.commit().await?;
         Ok(patient)
@@ -194,6 +198,7 @@ impl PatientsService {
                 .map_err(on_unique(PATIENT_UNIQUES))?;
         }
 
+        accounts::service::announce_files(&mut tx, &self.bus, t, [account_id]).await?;
         let account = accounts::service::load_account(&mut tx, t, account_id).await?;
         // Deferred constraint triggers re-validate the whole file here.
         tx.commit().await?;
