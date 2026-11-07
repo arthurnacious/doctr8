@@ -74,6 +74,7 @@ fn routes() -> Vec<(Method, String, Guard)> {
         r(Method::GET, "/patients/{id}", Requires(P::PatientsView)),
         r(Method::PATCH, "/patients/{id}", Requires(P::PatientsManage)),
         r(Method::POST, "/patients/search", Requires(P::PatientsView)),
+        r(Method::GET, "/patient-files/{id}", Requires(P::PatientsView)),
         r(Method::PUT, "/patients/{id}/status", Requires(P::PatientsManage)),
         // coding reference
         r(Method::GET, "/coding/icd10", InPractice),

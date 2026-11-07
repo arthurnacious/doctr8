@@ -55,3 +55,13 @@ pub async fn set_status(
 ) -> AppResult<Json<PatientResponse>> {
     Ok(Json(svc.set_status(&auth, id, req).await?))
 }
+
+/// A patient file (the account) as patient staff see it: who pays, the
+/// medical aid and everyone on it. Needs patients.view, not accounts.view.
+pub async fn get_file(
+    State(svc): State<PatientsService>,
+    auth: Require<perm::PatientsView>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<AccountResponse>> {
+    Ok(Json(svc.get_file(&auth, id).await?))
+}

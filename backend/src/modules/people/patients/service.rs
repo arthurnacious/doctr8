@@ -98,6 +98,13 @@ impl PatientsService {
         Ok(patient)
     }
 
+    pub async fn get_file(&self, actor: &TenantUser, account_id: Uuid) -> AppResult<AccountResponse> {
+        let mut tx = db::begin(&self.pool, actor.scope()).await?;
+        let file = accounts::service::load_account(&mut tx, actor.tenant_id, account_id).await?;
+        tx.commit().await?;
+        Ok(file)
+    }
+
     pub async fn get(&self, actor: &TenantUser, id: Uuid) -> AppResult<PatientResponse> {
         let mut tx = db::begin(&self.pool, actor.scope()).await?;
         let patient = find(&mut tx, actor.tenant_id, id).await?;

@@ -188,6 +188,7 @@ req POST /patients/search "$T" '{"query":"nkosi","status":"inactive"}'; check "i
 req POST /patients/search "$T" '{"query":"nkosi","status":"all"}'; check "all filter" 3 "$(j .total)"
 req GET /accounts/$ACC_FAM "$T"; check "file view shows each patient's status" active "$(j '.patients[0].status')"
 req PUT /patients/$LWAZI/status "$T" '{"status":"active"}'; check "reactivated" active "$(j .status)"
+req GET /patient-files/$ACC_FAM "$T"; check "patient staff can open a file" "3 FAM-1" "$(j '"\(.patients | length) \(.medical_aid.membership_number)"')"
 req POST /patients/search "$T" '{}'; check "empty query lists everyone, paged" 25 "$(j .page_size)"
 
 echo "== isolation"
@@ -197,6 +198,7 @@ req POST /tenants "$O" '{"name":"Clinic Q","slug":"clinic-q"}'; Q=$(j .id)
 req POST /auth/switch-practice "" "{\"tenant_id\":\"$Q\"}" "$J/other"; O=$(j .access_token)
 req GET /persons/$PERSON1 "$O"; check "other practice can't read person -> 404" 404 $CODE
 req GET /accounts/$ACC1 "$O"; check "other practice can't read account -> 404" 404 $CODE
+req GET /patient-files/$ACC1 "$O"; check "other practice can't open the file -> 404" 404 $CODE
 req POST /persons/search "$O" '{"query":"nkosi"}'; check "other practice search finds nothing" 0 "$(jq length <<<"$BODY")"
 req POST /patients/search "$O" '{"query":"nkosi"}'; check "other practice's patient list is separate" 0 "$(j .total)"
 req POST /accounts/$ACC_FAM/patients "$O" '{"person_id":"'$EXTRA'","dependant_code":"08"}'
