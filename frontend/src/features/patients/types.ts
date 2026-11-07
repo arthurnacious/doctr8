@@ -96,3 +96,20 @@ export interface PersonDetails {
   created_at: string
   updated_at: string
 }
+
+export interface Scheme {
+  id: string
+  name: string
+  code: string | null
+  plans: Array<{ id: string; name: string; code: string | null }>
+}
+
+/** POST /persons/search: enough to pick someone, no ID number or contacts. */
+export interface PersonSummary {
+  id: string
+  title: string | null
+  first_name: string
+  last_name: string
+  preferred_name: string | null
+  date_of_birth: string | null
+}

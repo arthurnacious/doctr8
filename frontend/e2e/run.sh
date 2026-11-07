@@ -55,6 +55,7 @@ register owner@e2e.test "Owner Person" >/dev/null
 T=$(login owner@e2e.test)
 A=$(post /tenants '{"name":"Practice A","slug":"practice-a"}' "$T" | jq -r .id)
 post /tenants '{"name":"Practice B","slug":"practice-b"}' "$T" >/dev/null
+post /tenants '{"name":"Practice C","slug":"practice-c"}' "$T" >/dev/null  # stays empty
 TA=$(login owner@e2e.test "$A")
 ROLE=$(post /roles '{"name":"Reception","permissions":["patients.view"]}' "$TA" | jq -r .id)
 

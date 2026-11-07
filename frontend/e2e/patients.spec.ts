@@ -11,8 +11,10 @@ test.describe('patient list', () => {
     const consoleLines = captureConsole(page)
     await signInAs(page, 'reception@e2e.test', '/patients')
     await expect(page.getByRole('heading', { name: 'Patients' })).toBeVisible()
+    // Only the seeded list patients, so other tests' files don't matter.
+    await page.getByLabel('Search patients').fill('listtest')
+    await expect(page.getByText('Showing 1–25 of 28')).toBeVisible()
     await expect(bodyRows(page)).toHaveCount(25)
-    await expect(page.getByText('Showing 1–25 of 31')).toBeVisible()
     await expect(table(page).locator('thead th')).toHaveText([
       'File',
       'Name',
@@ -23,8 +25,8 @@ test.describe('patient list', () => {
       'Main member',
     ])
     await page.getByRole('button', { name: 'Next' }).click()
-    await expect(page.getByText('Showing 26–31 of 31')).toBeVisible()
-    await expect(bodyRows(page)).toHaveCount(6)
+    await expect(page.getByText('Showing 26–28 of 28')).toBeVisible()
+    await expect(bodyRows(page)).toHaveCount(3)
     await expect(page).toHaveURL(/page=2/)
     expect(consoleLines.join('\n')).not.toMatch(
       /Listtest|Mokoena|8001015009087/,
@@ -93,8 +95,8 @@ test.describe('patient list', () => {
   test('a practice with no patients explains how to start', async ({
     page,
   }) => {
-    await signInAs(page, 'owner@e2e.test', '/patients')
-    await page.getByRole('button', { name: /Practice B/ }).click()
+    await // Practice C never gets patients (other tests add files to A and B).
+    await signInAs(page, 'owner@e2e.test', '/patients', 'Practice C')
     await expect(page.getByText('No patients yet')).toBeVisible()
     await expect(page.getByText(/Create the first file/)).toBeVisible()
   })

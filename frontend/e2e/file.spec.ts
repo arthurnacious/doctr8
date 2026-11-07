@@ -1,9 +1,7 @@
-import { expect, request, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
-import { PASSWORD, signInAs } from './helpers'
+import { apiAs, signInAs } from './helpers'
 import type { Page } from '@playwright/test'
-
-const API = process.env.E2E_API_URL ?? 'http://127.0.0.1:3100'
 
 async function openFromList(page: Page, query: string, rowText: string) {
   await page.getByLabel('Search patients').fill(query)
@@ -108,28 +106,7 @@ test.describe('patient file', () => {
     await expect(page.getByRole('tabpanel')).toContainText('0821110000')
 
     // Another user (the owner, via the API) changes Ayanda's mobile number.
-    const api = await request.newContext({ baseURL: API })
-    const login = await api.post('/auth/login', {
-      data: { email: 'owner@e2e.test', password: PASSWORD },
-    })
-    let token = (await login.json()).access_token as string
-    const practices = (await login.json()).practices as Array<{
-      id: string
-      name: string
-    }>
-    const a = practices.find((p) => p.name === 'Practice A')!
-    token = (
-      await (
-        await api.post('/auth/login', {
-          data: {
-            email: 'owner@e2e.test',
-            password: PASSWORD,
-            tenant_id: a.id,
-          },
-        })
-      ).json()
-    ).access_token
-    const auth = { authorization: `Bearer ${token}` }
+    const { api, headers: auth } = await apiAs('owner@e2e.test', 'Practice A')
     const found = await (
       await api.post('/patients/search', {
         headers: auth,

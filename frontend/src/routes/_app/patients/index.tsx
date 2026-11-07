@@ -1,9 +1,10 @@
 import {
+  Link,
   createFileRoute,
   stripSearchParams,
   useNavigate,
 } from '@tanstack/react-router'
-import { Search } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { Alert, TextField } from '#/components/ui/Field'
@@ -12,6 +13,7 @@ import { pageCount, pageSummary } from '#/features/patients/format'
 import { useListQuery } from '#/features/patients/listQuery'
 import { PatientTable } from '#/features/patients/PatientTable'
 import { errorMessage } from '#/lib/api/errors'
+import { useCan } from '#/lib/auth/session'
 import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import type { PatientListItem, StatusFilter } from '#/features/patients/types'
 
@@ -47,6 +49,7 @@ function PatientList() {
     Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [query, setQuery] = useListQuery()
+  const canCreate = useCan('patients.manage')
   const debounced = useDebouncedValue(query.trim(), 300)
   const list = usePatientList({ query: debounced, status, page })
 
@@ -69,6 +72,15 @@ function PatientList() {
         <h1 className="text-2xl font-semibold tracking-tight text-text">
           Patients
         </h1>
+        {canCreate && (
+          <Link
+            to="/patients/new"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-hover"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            New file
+          </Link>
+        )}
       </header>
 
       <div className="flex flex-col gap-4 md:flex-row md:items-end">
@@ -123,7 +135,7 @@ function PatientList() {
           Loading patients…
         </p>
       ) : data.total === 0 ? (
-        <EmptyList query={debounced} status={status} />
+        <EmptyList query={debounced} status={status} canCreate={canCreate} />
       ) : (
         <>
           <div className={list.isPlaceholderData ? 'opacity-60' : undefined}>
@@ -163,7 +175,15 @@ function PatientList() {
   )
 }
 
-function EmptyList({ query, status }: { query: string; status: StatusFilter }) {
+function EmptyList({
+  query,
+  status,
+  canCreate,
+}: {
+  query: string
+  status: StatusFilter
+  canCreate: boolean
+}) {
   if (query) {
     return (
       <div className="rounded-lg border border-border bg-panel px-6 py-10 text-center">
@@ -191,10 +211,22 @@ function EmptyList({ query, status }: { query: string; status: StatusFilter }) {
         code. Create the first file with New file: you'll enter the patient's
         details, who pays, and their medical aid or private billing.
       </p>
-      <p className="mt-2 max-w-prose text-sm text-subtle">
-        You'll need permission to manage patients. Ask a practice owner if you
-        don't see the option.
-      </p>
+      {canCreate ? (
+        <div className="mt-4">
+          <Link
+            to="/patients/new"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-hover"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            New file
+          </Link>
+        </div>
+      ) : (
+        <p className="mt-2 max-w-prose text-sm text-subtle">
+          You need permission to manage patients to create files. Ask a practice
+          owner.
+        </p>
+      )}
     </div>
   )
 }

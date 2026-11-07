@@ -22,6 +22,7 @@ import { Route as AuthChoosePracticeRouteImport } from './routes/_auth/choose-pr
 import { Route as AuthSignInRouteImport } from './routes/_auth/sign-in'
 import { Route as AuthTwoStepRouteImport } from './routes/_auth/two-step'
 import { Route as AppPatientsIndexRouteImport } from './routes/_app/patients/index'
+import { Route as AppPatientsNewRouteImport } from './routes/_app/patients/new'
 import { Route as AppPatientsFileAccountIdRouteImport } from './routes/_app/patients/file.$accountId'
 
 const AppRoute = AppRouteImport.update({
@@ -87,6 +88,11 @@ const AppPatientsIndexRoute = AppPatientsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppPatientsRouteRoute,
 } as any)
+const AppPatientsNewRoute = AppPatientsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppPatientsRouteRoute,
+} as any)
 const AppPatientsFileAccountIdRoute =
   AppPatientsFileAccountIdRouteImport.update({
     id: '/file/$accountId',
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/choose-practice': typeof AuthChoosePracticeRoute
   '/sign-in': typeof AuthSignInRoute
   '/two-step': typeof AuthTwoStepRoute
+  '/patients/new': typeof AppPatientsNewRoute
   '/patients/': typeof AppPatientsIndexRoute
   '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
 }
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/choose-practice': typeof AuthChoosePracticeRoute
   '/sign-in': typeof AuthSignInRoute
   '/two-step': typeof AuthTwoStepRoute
+  '/patients/new': typeof AppPatientsNewRoute
   '/patients': typeof AppPatientsIndexRoute
   '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
 }
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   '/_auth/sign-in': typeof AuthSignInRoute
   '/_auth/two-step': typeof AuthTwoStepRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/patients/new': typeof AppPatientsNewRoute
   '/_app/patients/': typeof AppPatientsIndexRoute
   '/_app/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
 }
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/choose-practice'
     | '/sign-in'
     | '/two-step'
+    | '/patients/new'
     | '/patients/'
     | '/patients/file/$accountId'
   fileRoutesByTo: FileRoutesByTo
@@ -164,6 +174,7 @@ export interface FileRouteTypes {
     | '/choose-practice'
     | '/sign-in'
     | '/two-step'
+    | '/patients/new'
     | '/patients'
     | '/patients/file/$accountId'
   id:
@@ -180,6 +191,7 @@ export interface FileRouteTypes {
     | '/_auth/sign-in'
     | '/_auth/two-step'
     | '/_app/'
+    | '/_app/patients/new'
     | '/_app/patients/'
     | '/_app/patients/file/$accountId'
   fileRoutesById: FileRoutesById
@@ -282,6 +294,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPatientsIndexRouteImport
       parentRoute: typeof AppPatientsRouteRoute
     }
+    '/_app/patients/new': {
+      id: '/_app/patients/new'
+      path: '/new'
+      fullPath: '/patients/new'
+      preLoaderRoute: typeof AppPatientsNewRouteImport
+      parentRoute: typeof AppPatientsRouteRoute
+    }
     '/_app/patients/file/$accountId': {
       id: '/_app/patients/file/$accountId'
       path: '/file/$accountId'
@@ -293,11 +312,13 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppPatientsRouteRouteChildren {
+  AppPatientsNewRoute: typeof AppPatientsNewRoute
   AppPatientsIndexRoute: typeof AppPatientsIndexRoute
   AppPatientsFileAccountIdRoute: typeof AppPatientsFileAccountIdRoute
 }
 
 const AppPatientsRouteRouteChildren: AppPatientsRouteRouteChildren = {
+  AppPatientsNewRoute: AppPatientsNewRoute,
   AppPatientsIndexRoute: AppPatientsIndexRoute,
   AppPatientsFileAccountIdRoute: AppPatientsFileAccountIdRoute,
 }
