@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
+use chrono::Utc;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use super::{
-    dto::{AccountResponse, AddPatientRequest, MedicalAidRef, PersonRef, UpdateAccountRequest},
+    dto::{AccountResponse, AddPatientRequest, MedicalAidRef, NewPatientPerson, PersonRef, UpdateAccountRequest},
     repository::{self as repo, AccountRow},
 };
 use crate::{
@@ -41,10 +42,17 @@ impl AccountsService {
     /// Change who pays, the medical aid, or open/closed status. The resulting
     /// file must still satisfy its file-mode rules (e.g. switching medical aid
     /// changes who the 00 patient must be).
-    pub async fn update(&self, actor: &TenantUser, id: Uuid, req: UpdateAccountRequest) -> AppResult<AccountResponse> {
+    pub async fn update(&self, actor: &TenantUser, id: Uuid, mut req: UpdateAccountRequest) -> AppResult<AccountResponse> {
+        req.check()?;
         let t = actor.tenant_id;
         let mut tx = db::begin(&self.pool, actor.scope()).await?;
         let account = find_locked(&mut tx, t, id).await?;
+
+        if let Some(m) = req.new_membership.take() {
+            let new = m.validate(account.principal())?;
+            let created = memberships::service::create_membership(&mut tx, t, &new, actor.user_id).await?;
+            req.membership_id = Some(Some(created));
+        }
 
         if let Some(g) = req.guarantor_person_id {
             persons::service::ensure_exists(&mut tx, t, g).await?;
@@ -68,28 +76,36 @@ impl AccountsService {
         Ok(updated)
     }
 
-    /// Add an existing person as a patient on an existing account. Only
-    /// family-per-file accounts accept more than one patient.
+    /// Add an existing or new person as a patient on an existing account.
+    /// Only family-per-file accounts accept more than one patient. A new
+    /// person is created in the same transaction, so a rejected add leaves
+    /// nothing behind.
     pub async fn add_patient(&self, actor: &TenantUser, id: Uuid, req: AddPatientRequest) -> AppResult<AccountResponse> {
-        let code = req.validated_code()?;
+        let (person, code) = req.validate(Utc::now().date_naive())?;
         let t = actor.tenant_id;
         let mut tx = db::begin(&self.pool, actor.scope()).await?;
         let account = find_locked(&mut tx, t, id).await?;
         if account.status != "open" {
             return Err(AppError::Conflict("Patients can't be added to a closed account".into()));
         }
-        persons::service::ensure_exists(&mut tx, t, req.person_id).await?;
+        let person_id = match person {
+            NewPatientPerson::Existing(p) => {
+                persons::service::ensure_exists(&mut tx, t, p).await?;
+                p
+            }
+            NewPatientPerson::New(p) => persons::service::insert_person(&mut tx, t, &p, actor.user_id).await?.id,
+        };
 
         let mut slots = current_slots(&mut tx, t, id).await?;
         let principal = account.principal();
         let code = match code {
             Some(c) => c,
-            None => default_dependant_code(req.person_id, principal, account.membership_id.is_some(), &slots)?,
+            None => default_dependant_code(person_id, principal, account.membership_id.is_some(), &slots)?,
         };
-        slots.push(Slot { person_id: req.person_id, dependant_code: code.clone() });
+        slots.push(Slot { person_id, dependant_code: code.clone() });
         check_file_rules(FileMode::from_db(&account.file_mode)?, principal, &slots, true)?;
 
-        patients::repository::insert(&mut tx, t, req.person_id, id, &code, actor.user_id).await?;
+        patients::repository::insert(&mut tx, t, person_id, id, &code, actor.user_id).await?;
         announce_files(&mut tx, &self.bus, t, [id]).await?;
         let updated = load_account(&mut tx, t, id).await?;
         tx.commit().await?;

@@ -92,6 +92,18 @@ req POST /accounts/$ACC_FAM/patients "$T" '{"person_id":"'$EXTRA'","dependant_co
 check "add dependant to family file" 3 "$(j '.patients | length')"
 req POST /accounts/$ACC_FAM/patients "$T" '{"person_id":"'$PERSON1'","dependant_code":"02"}'
 check "duplicate dependant code -> 422" 422 $CODE
+req POST /accounts/$ACC_FAM/patients "$T" '{"person":{"first_name":"Zola","last_name":"Inline","date_of_birth":"2019-03-04"},"dependant_code":"03"}'
+check "add a new person as a dependant in one step" 201 $CODE
+check "new dependant is on the file" Zola "$(j '.patients[] | select(.dependant_code=="03") | .first_name')"
+req POST /accounts/$ACC_FAM/patients "$T" '{"person":{"first_name":"","last_name":"Inline"},"dependant_code":"04"}'
+check "invalid new dependant -> 422" 422 $CODE
+contains "error names the person field" "person: " "$(j .error.message)"
+req POST /accounts/$ACC_FAM/patients "$T" '{"person_id":"'$EXTRA'","person":{"first_name":"A","last_name":"B"}}'
+check "person_id and person together -> 422" 422 $CODE
+NPERSONS_BEFORE=$($PSQL -tAc "SELECT count(*) FROM persons")
+req POST /accounts/$ACC1/patients "$T" '{"person":{"first_name":"Orphan","last_name":"Never"}}'
+check "new person on a per-file account -> 409" 409 $CODE
+check "rejected add leaves no orphan person" "$NPERSONS_BEFORE" "$($PSQL -tAc "SELECT count(*) FROM persons")"
 req POST /accounts/$ACC1/patients "$T" '{"person_id":"'$EXTRA'"}'
 check "old per-file account keeps its rules after mode change -> 409" 409 $CODE
 req GET /accounts/$ACC1 "$T"; check "old account still patient_per_file" patient_per_file "$(j .file_mode)"
@@ -117,6 +129,14 @@ echo "== account changes"
 req PATCH /accounts/$ACC_MA "$T" '{"membership_id":null}'
 check "dropping medical aid keeps 00 (main member is also guarantor)" 200 $CODE
 check "account now private" null "$(j .medical_aid)"
+req PATCH /accounts/$ACC_MA "$T" '{"new_membership":{"scheme_id":"'$SCHEME'","plan_id":"'$OTHER_PLAN'","membership_number":"NM-1"}}'
+check "new membership with another scheme's plan -> 422" 422 $CODE
+req PATCH /accounts/$ACC_MA "$T" '{"new_membership":{"scheme_id":"'$SCHEME'","plan_id":"'$PLAN'","membership_number":"nm 1"},"membership_id":null}'
+check "new_membership with membership_id -> 422" 422 $CODE
+req PATCH /accounts/$ACC_MA "$T" '{"new_membership":{"scheme_id":"'$SCHEME'","plan_id":"'$PLAN'","membership_number":"nm 1"}}'
+check "put a private file on a new medical aid in one step" 200 $CODE
+check "new membership number" NM1 "$(j .medical_aid.membership_number)"
+check "main member is the file's 00 patient" "$SIPHO" "$(j .medical_aid.main_member_person_id)"
 req PATCH /accounts/$ACC_FAM "$T" '{"guarantor_person_id":"'$EXTRA'","membership_id":null}'
 check "making family file private with a different guarantor breaks 00 -> 422" 422 $CODE
 req PATCH /accounts/$ACC1 "$T" '{"status":"closed"}'; check "close account" closed "$(j .status)"
@@ -176,10 +196,10 @@ check "list never carries a full ID number" 0 "$(grep -c 9002150123088 <<<"$BODY
 req POST /patients/search "$T" '{"query":"nkosi","page":2,"page_size":1}'
 check "paged on the server" "1 3 2" "$(j '"\(.items | length) \(.total) \(.page)"')"
 req POST /patients/search "$T" '{"query":"FAM-1"}'
-check "membership number search" 3 "$(j .total)"
+check "membership number search" 4 "$(j .total)"
 check "medical aid, plan and main member in the row" "Test Health Classic Naledi Mokoena" \
   "$(j '.items[0] | "\(.scheme_name) \(.plan_name) \(.main_member.first_name) \(.main_member.last_name)"')"
-req POST /persons/search "$T" '{"query":"fam-1"}'; check "person search also matches membership numbers" 3 "$(jq length <<<"$BODY")"
+req POST /persons/search "$T" '{"query":"fam-1"}'; check "person search also matches membership numbers" 4 "$(jq length <<<"$BODY")"
 req POST /patients/search "$T" '{"query":"0001"}'; check "file number search" "1" "$(j '.items[0].account_no')"
 LWAZI=$($PSQL -tAc "SELECT pt.id FROM patients pt JOIN persons p ON p.id = pt.person_id WHERE p.first_name = 'Lwazi'")
 req PUT /patients/$LWAZI/status "$T" '{"status":"inactive"}'; check "patient marked inactive" inactive "$(j .status)"
@@ -189,7 +209,7 @@ req POST /patients/search "$T" '{"query":"nkosi","status":"all"}'; check "all fi
 req GET /accounts/$ACC_FAM "$T"; check "file view shows each patient's status" active "$(j '.patients[0].status')"
 req PUT /patients/$LWAZI/status "$T" '{"status":"active"}'; check "reactivated" active "$(j .status)"
 req GET /patient-files/settings "$T"; check "file mode for the new-file flow" debtor_per_visit "$(j .file_mode)"
-req GET /patient-files/$ACC_FAM "$T"; check "patient staff can open a file" "3 FAM-1" "$(j '"\(.patients | length) \(.medical_aid.membership_number)"')"
+req GET /patient-files/$ACC_FAM "$T"; check "patient staff can open a file" "4 FAM-1" "$(j '"\(.patients | length) \(.medical_aid.membership_number)"')"
 req POST /patients/search "$T" '{}'; check "empty query lists everyone, paged" 25 "$(j .page_size)"
 
 echo "== isolation"
