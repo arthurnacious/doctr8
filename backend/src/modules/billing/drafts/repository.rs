@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use super::dto::{ContextMedicalAid, ContextPatient};
+
 #[derive(sqlx::FromRow)]
 pub struct DraftRow {
     pub id: Uuid,
@@ -65,4 +67,33 @@ pub async fn delete(conn: &mut PgConnection, tenant_id: Uuid, id: Uuid) -> Resul
         .await?
         .rows_affected()
         > 0)
+}
+
+pub async fn context_patients(conn: &mut PgConnection, tenant_id: Uuid, account_id: Uuid) -> Result<Vec<ContextPatient>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT pt.id AS patient_id, pt.dependant_code, p.title, p.first_name, p.last_name, p.date_of_birth, p.sex, pt.status
+           FROM patients pt
+           JOIN persons p ON p.tenant_id = pt.tenant_id AND p.id = pt.person_id
+          WHERE pt.tenant_id = $1 AND pt.account_id = $2
+          ORDER BY pt.dependant_code",
+    )
+    .bind(tenant_id)
+    .bind(account_id)
+    .fetch_all(conn)
+    .await
+}
+
+pub async fn context_medical_aid(conn: &mut PgConnection, tenant_id: Uuid, account_id: Uuid) -> Result<Option<ContextMedicalAid>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT m.plan_id, s.name AS scheme_name, pl.name AS plan_name, m.membership_number
+           FROM accounts a
+           JOIN medical_aid_memberships m ON m.tenant_id = a.tenant_id AND m.id = a.membership_id
+           JOIN medical_scheme_plans pl ON pl.id = m.plan_id
+           JOIN medical_schemes s ON s.id = pl.scheme_id
+          WHERE a.tenant_id = $1 AND a.id = $2",
+    )
+    .bind(tenant_id)
+    .bind(account_id)
+    .fetch_optional(conn)
+    .await
 }

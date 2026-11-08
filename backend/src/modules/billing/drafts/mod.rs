@@ -20,4 +20,5 @@ pub fn router() -> Router<AppState> {
         .route("/invoice-drafts/{id}", get(handler::get).put(handler::update).delete(handler::delete))
         .route("/invoice-drafts/{id}/finalise", post(handler::finalise))
         .route("/accounts/{id}/invoice-drafts", get(handler::list_for_account))
+        .route("/accounts/{id}/billing-context", get(handler::context))
 }

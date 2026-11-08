@@ -335,6 +335,11 @@ req GET /remittances/$RA "$X"; check "other practice can't read remittance -> 40
 req GET /claims "$X"; check "other practice's claims queue is empty" 0 "$(jq length <<<"$BODY")"
 
 echo "== invoice drafts"
+req GET /accounts/$MA/billing-context "$T"
+check "billing context: plan for prices" "$PLAN Core" "$(j '.medical_aid | "\(.plan_id) \(.plan_name)"')"
+check "billing context: patients with code" "00 Bongani" "$(j '.patients[0] | "\(.dependant_code) \(.first_name)"')"
+req GET /accounts/$PRIV/billing-context "$T"; check "private file: no medical aid" null "$(j .medical_aid)"
+req GET /accounts/$MA/billing-context "$R"; check "reception can't read billing context -> 403" 403 $CODE
 req POST /invoice-drafts "$T" "{\"account_id\":\"$PRIV\",\"content\":{\"patient_id\":\"$ZANELE\",\"lines\":[],\"ui\":{\"note\":\"screen only\"}}}"
 check "draft created" 201 $CODE; DRAFT=$(j .id); DRAFT_AT=$(j .updated_at)
 check "draft keeps screen-only details" "screen only" "$(j .content.ui.note)"

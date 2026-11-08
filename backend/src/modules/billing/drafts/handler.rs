@@ -6,7 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use super::{
-    dto::{CreateDraftRequest, DraftResponse, UpdateDraftRequest},
+    dto::{BillingContext, CreateDraftRequest, DraftResponse, UpdateDraftRequest},
     service::DraftsService,
 };
 use crate::{
@@ -54,4 +54,9 @@ pub async fn finalise(
     Path(id): Path<Uuid>,
 ) -> AppResult<(StatusCode, Json<InvoiceResponse>)> {
     Ok((StatusCode::CREATED, Json(svc.finalise(&auth, id).await?)))
+}
+
+/// `GET /accounts/{id}/billing-context`
+pub async fn context(State(svc): State<DraftsService>, auth: Require<perm::BillingView>, Path(id): Path<Uuid>) -> AppResult<Json<BillingContext>> {
+    Ok(Json(svc.context(&auth, id).await?))
 }

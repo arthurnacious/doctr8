@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::{
-    dto::{CreateDraftRequest, DraftResponse, UpdateDraftRequest, as_invoice_request, check_content},
+    dto::{BillingContext, CreateDraftRequest, DraftResponse, UpdateDraftRequest, as_invoice_request, check_content},
     repository::{self as repo, DraftRow},
 };
 use crate::{
@@ -12,9 +12,12 @@ use crate::{
         error::{AppError, AppResult},
         ws::EventBus,
     },
-    modules::billing::{
-        invoices::{self, dto::InvoiceResponse},
-        today, transactions,
+    modules::{
+        billing::{
+            invoices::{self, dto::InvoiceResponse},
+            today, transactions,
+        },
+        people,
     },
 };
 
@@ -41,6 +44,21 @@ impl DraftsService {
         let row = repo::insert(&mut tx, actor.tenant_id, req.account_id, &content, actor.user_id).await?;
         tx.commit().await?;
         response(row)
+    }
+
+    pub async fn context(&self, actor: &TenantUser, account_id: Uuid) -> AppResult<BillingContext> {
+        let t = actor.tenant_id;
+        let mut tx = db::begin(&self.pool, actor.scope()).await?;
+        let account = people::accounts::repository::find(&mut tx, t, account_id).await?.ok_or(AppError::NotFound("account"))?;
+        let out = BillingContext {
+            account_id,
+            account_no: account.account_no,
+            status: account.status,
+            medical_aid: repo::context_medical_aid(&mut tx, t, account_id).await?,
+            patients: repo::context_patients(&mut tx, t, account_id).await?,
+        };
+        tx.commit().await?;
+        Ok(out)
     }
 
     pub async fn get(&self, actor: &TenantUser, id: Uuid) -> AppResult<DraftResponse> {

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -39,6 +39,38 @@ pub struct DraftResponse {
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// What the invoice screen needs about the file: who can be invoiced (with
+/// date of birth and sex, for ICD-10 checks) and the medical aid plan (for
+/// tariff prices). Readable with billing.view alone.
+#[derive(Serialize)]
+pub struct BillingContext {
+    pub account_id: Uuid,
+    pub account_no: i64,
+    pub status: String,
+    pub medical_aid: Option<ContextMedicalAid>,
+    pub patients: Vec<ContextPatient>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ContextMedicalAid {
+    pub plan_id: Uuid,
+    pub scheme_name: String,
+    pub plan_name: String,
+    pub membership_number: String,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ContextPatient {
+    pub patient_id: Uuid,
+    pub dependant_code: String,
+    pub title: Option<String>,
+    pub first_name: String,
+    pub last_name: String,
+    pub date_of_birth: Option<NaiveDate>,
+    pub sex: Option<String>,
+    pub status: String,
 }
 
 /// A draft's content as stored: a JSON object, size-limited.
