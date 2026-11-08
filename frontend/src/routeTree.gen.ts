@@ -24,6 +24,7 @@ import { Route as AuthTwoStepRouteImport } from './routes/_auth/two-step'
 import { Route as AppBillingIndexRouteImport } from './routes/_app/billing/index'
 import { Route as AppPatientsIndexRouteImport } from './routes/_app/patients/index'
 import { Route as AppPatientsNewRouteImport } from './routes/_app/patients/new'
+import { Route as AppBillingDraftsDraftIdRouteImport } from './routes/_app/billing/drafts.$draftId'
 import { Route as AppBillingInvoicesInvoiceIdRouteImport } from './routes/_app/billing/invoices.$invoiceId'
 import { Route as AppPatientsFileAccountIdRouteImport } from './routes/_app/patients/file.$accountId'
 import { Route as AppPatientsStatementAccountIdRouteImport } from './routes/_app/patients/statement.$accountId'
@@ -101,6 +102,11 @@ const AppPatientsNewRoute = AppPatientsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => AppPatientsRouteRoute,
 } as any)
+const AppBillingDraftsDraftIdRoute = AppBillingDraftsDraftIdRouteImport.update({
+  id: '/drafts/$draftId',
+  path: '/drafts/$draftId',
+  getParentRoute: () => AppBillingRouteRoute,
+} as any)
 const AppBillingInvoicesInvoiceIdRoute =
   AppBillingInvoicesInvoiceIdRouteImport.update({
     id: '/invoices/$invoiceId',
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/patients/new': typeof AppPatientsNewRoute
   '/billing/': typeof AppBillingIndexRoute
   '/patients/': typeof AppPatientsIndexRoute
+  '/billing/drafts/$draftId': typeof AppBillingDraftsDraftIdRoute
   '/billing/invoices/$invoiceId': typeof AppBillingInvoicesInvoiceIdRoute
   '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
   '/patients/statement/$accountId': typeof AppPatientsStatementAccountIdRoute
@@ -150,6 +157,7 @@ export interface FileRoutesByTo {
   '/patients/new': typeof AppPatientsNewRoute
   '/billing': typeof AppBillingIndexRoute
   '/patients': typeof AppPatientsIndexRoute
+  '/billing/drafts/$draftId': typeof AppBillingDraftsDraftIdRoute
   '/billing/invoices/$invoiceId': typeof AppBillingInvoicesInvoiceIdRoute
   '/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
   '/patients/statement/$accountId': typeof AppPatientsStatementAccountIdRoute
@@ -171,6 +179,7 @@ export interface FileRoutesById {
   '/_app/patients/new': typeof AppPatientsNewRoute
   '/_app/billing/': typeof AppBillingIndexRoute
   '/_app/patients/': typeof AppPatientsIndexRoute
+  '/_app/billing/drafts/$draftId': typeof AppBillingDraftsDraftIdRoute
   '/_app/billing/invoices/$invoiceId': typeof AppBillingInvoicesInvoiceIdRoute
   '/_app/patients/file/$accountId': typeof AppPatientsFileAccountIdRoute
   '/_app/patients/statement/$accountId': typeof AppPatientsStatementAccountIdRoute
@@ -191,6 +200,7 @@ export interface FileRouteTypes {
     | '/patients/new'
     | '/billing/'
     | '/patients/'
+    | '/billing/drafts/$draftId'
     | '/billing/invoices/$invoiceId'
     | '/patients/file/$accountId'
     | '/patients/statement/$accountId'
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/patients/new'
     | '/billing'
     | '/patients'
+    | '/billing/drafts/$draftId'
     | '/billing/invoices/$invoiceId'
     | '/patients/file/$accountId'
     | '/patients/statement/$accountId'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/_app/patients/new'
     | '/_app/billing/'
     | '/_app/patients/'
+    | '/_app/billing/drafts/$draftId'
     | '/_app/billing/invoices/$invoiceId'
     | '/_app/patients/file/$accountId'
     | '/_app/patients/statement/$accountId'
@@ -344,6 +356,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPatientsNewRouteImport
       parentRoute: typeof AppPatientsRouteRoute
     }
+    '/_app/billing/drafts/$draftId': {
+      id: '/_app/billing/drafts/$draftId'
+      path: '/drafts/$draftId'
+      fullPath: '/billing/drafts/$draftId'
+      preLoaderRoute: typeof AppBillingDraftsDraftIdRouteImport
+      parentRoute: typeof AppBillingRouteRoute
+    }
     '/_app/billing/invoices/$invoiceId': {
       id: '/_app/billing/invoices/$invoiceId'
       path: '/invoices/$invoiceId'
@@ -370,11 +389,13 @@ declare module '@tanstack/react-router' {
 
 interface AppBillingRouteRouteChildren {
   AppBillingIndexRoute: typeof AppBillingIndexRoute
+  AppBillingDraftsDraftIdRoute: typeof AppBillingDraftsDraftIdRoute
   AppBillingInvoicesInvoiceIdRoute: typeof AppBillingInvoicesInvoiceIdRoute
 }
 
 const AppBillingRouteRouteChildren: AppBillingRouteRouteChildren = {
   AppBillingIndexRoute: AppBillingIndexRoute,
+  AppBillingDraftsDraftIdRoute: AppBillingDraftsDraftIdRoute,
   AppBillingInvoicesInvoiceIdRoute: AppBillingInvoicesInvoiceIdRoute,
 }
 

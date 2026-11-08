@@ -19,6 +19,7 @@ import {
 import { friendlyError } from '#/features/patients/errors'
 import { InvoiceTable } from '#/features/billing/InvoiceTable'
 import { useAccountInvoices } from '#/features/billing/api'
+import { useAccountDrafts, useCreateDraft } from '#/features/billing/draft/api'
 import {
   FILE_MODE_HELP,
   FILE_MODE_LABELS,
@@ -229,9 +230,27 @@ function BillingTab({ accountId }: { accountId: string }) {
 
 function AccountBilling({ accountId }: { accountId: string }) {
   const invoices = useAccountInvoices(accountId)
+  const canInvoice = useCan('billing.manage')
+  const drafts = useAccountDrafts(accountId)
+  const create = useCreateDraft()
+  const navigate = useNavigate()
+  const newInvoice = () =>
+    create.mutate(accountId, {
+      onSuccess: (d) =>
+        void navigate({
+          to: '/billing/drafts/$draftId',
+          params: { draftId: d.id },
+        }),
+    })
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-wrap items-center gap-3">
+        {canInvoice && (
+          <Button busy={create.isPending} onClick={newInvoice}>
+            <Plus className="size-4" aria-hidden="true" />
+            New invoice
+          </Button>
+        )}
         <Link
           to="/patients/statement/$accountId"
           params={{ accountId }}
@@ -241,6 +260,35 @@ function AccountBilling({ accountId }: { accountId: string }) {
           Open statement
         </Link>
       </div>
+      {create.isError && <Alert>{friendlyError(create.error)}</Alert>}
+      {(drafts.data?.length ?? 0) > 0 && (
+        <section
+          aria-labelledby="drafts-heading"
+          className="flex flex-col gap-2"
+        >
+          <h3 id="drafts-heading" className="text-sm font-semibold text-text">
+            Drafts (not posted)
+          </h3>
+          <ul className="flex flex-col gap-1">
+            {drafts.data?.map((d) => (
+              <li key={d.id}>
+                <Link
+                  to="/billing/drafts/$draftId"
+                  params={{ draftId: d.id }}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-lg text-sm text-text underline underline-offset-4"
+                >
+                  Draft saved{' '}
+                  {new Intl.DateTimeFormat('en-ZA', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                    timeZone: 'Africa/Johannesburg',
+                  }).format(new Date(d.updated_at))}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <h3 className="text-sm font-semibold text-text">Invoices on this file</h3>
       {invoices.isError ? (
         <Alert>{errorMessage(invoices.error)}</Alert>

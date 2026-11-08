@@ -98,7 +98,18 @@ INSERT INTO modifiers (code, description) VALUES ('0018', 'Reduced fee');
 INSERT INTO tariff_codes (code_set, code, description) VALUES
   ('CCSA', '0190', 'Consultation, new patient'), ('CCSA', '0191', 'Consultation, established patient');
 INSERT INTO nappi_codes (code, description) VALUES ('716541001', 'Paracetamol 500mg x 20');
+INSERT INTO icd10_codes (code, description, valid_as_primary) VALUES ('Y40.0', 'Adverse effect of penicillins', false);
+INSERT INTO icd10_codes (code, description, sex, min_age_years, max_age_years)
+  VALUES ('O80', 'Single spontaneous delivery', 'female', 12, 55);
 SQL
+# Tariff rates for this year: the E2E Health Core plan's own rate for 0190,
+# and default (private) rates.
+Y=$(TZ=Africa/Johannesburg date +%Y)
+psql "$TEST_DATABASE_URL" -q -c "
+  INSERT INTO tariff_prices (tariff_code_id, plan_id, year, price_cents)
+    SELECT id, '$PLAN'::uuid, $Y, 52000 FROM tariff_codes WHERE code = '0190'
+    UNION ALL SELECT id, NULL::uuid, $Y, 50000 FROM tariff_codes WHERE code = '0190'
+    UNION ALL SELECT id, NULL::uuid, $Y, 39000 FROM tariff_codes WHERE code = '0191';"
 api() { curl -sS --fail-with-body -X "$1" "$API$2" -H 'content-type: application/json' -H "authorization: Bearer $TA" -d "$3"; }
 sa_date() { TZ=Africa/Johannesburg date -d "$1" +%F; }
 api PATCH /tenants/current '{"details":{"address_line1":"1 Main Rd","city":"Durban","postal_code":"4001","phone":"031 555 1234","email":"accounts@practice-a.test","bank_name":"First Bank","bank_account_name":"Practice A","bank_account_number":"62 1234 5678","bank_branch_code":"250655"}}' >/dev/null
