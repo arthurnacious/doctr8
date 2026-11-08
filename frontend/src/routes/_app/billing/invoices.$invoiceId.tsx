@@ -5,6 +5,8 @@ import { Button } from '#/components/ui/Button'
 import { Alert } from '#/components/ui/Field'
 import { InvoiceView } from '#/features/billing/InvoiceView'
 import { useInvoice } from '#/features/billing/api'
+import { InvoiceActions } from '#/features/billing/corrections/InvoiceActions'
+import { todayInSA } from '#/features/billing/statement'
 import { ApiError, errorMessage } from '#/lib/api/errors'
 import { useFollowAccount } from '#/lib/ws/useRealtime'
 
@@ -50,7 +52,12 @@ function InvoicePage() {
       ) : !invoice.data ? (
         <p className="py-12 text-center text-sm text-muted">Loading invoice…</p>
       ) : (
-        <InvoiceView invoice={invoice.data} />
+        <InvoiceView
+          invoice={invoice.data}
+          actions={
+            <InvoiceActions invoice={invoice.data} today={todayInSA()} />
+          }
+        />
       )}
     </div>
   )

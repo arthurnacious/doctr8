@@ -66,6 +66,13 @@ curl -sf -X PUT "$API/members/$REC/roles" -H 'content-type: application/json' -H
 
 register nobody@e2e.test "No Practice" >/dev/null
 
+# A clerk who can look at billing (and patients) but not change anything.
+VROLE=$(post /roles '{"name":"Billing viewer","permissions":["patients.view","billing.view"]}' "$TA" | jq -r .id)
+VIEWER=$(register viewer@e2e.test "Billing Viewer")
+psql "$TEST_DATABASE_URL" -q -c "INSERT INTO memberships (tenant_id, user_id, status, joined_at) VALUES ('$A', '$VIEWER', 'active', now())"
+curl -sf -X PUT "$API/members/$VIEWER/roles" -H 'content-type: application/json' -H "authorization: Bearer $TA" \
+  -d "{\"role_ids\":[\"$VROLE\"]}" >/dev/null
+
 # Patients in Practice A: enough for two pages, one on medical aid with an
 # SA ID number, and one inactive.
 read -r SCHEME PLAN < <(psql "$TEST_DATABASE_URL" -tA -F' ' -c "

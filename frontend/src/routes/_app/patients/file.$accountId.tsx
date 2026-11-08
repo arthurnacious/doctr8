@@ -19,6 +19,8 @@ import {
 import { friendlyError } from '#/features/patients/errors'
 import { InvoiceTable } from '#/features/billing/InvoiceTable'
 import { useAccountInvoices } from '#/features/billing/api'
+import { AccountPayment } from '#/features/billing/corrections/InvoiceActions'
+import { todayInSA } from '#/features/billing/statement'
 import { useAccountDrafts, useCreateDraft } from '#/features/billing/draft/api'
 import {
   FILE_MODE_HELP,
@@ -261,6 +263,7 @@ function AccountBilling({ accountId }: { accountId: string }) {
         </Link>
       </div>
       {create.isError && <Alert>{friendlyError(create.error)}</Alert>}
+      <AccountPayment accountId={accountId} today={todayInSA()} />
       {(drafts.data?.length ?? 0) > 0 && (
         <section
           aria-labelledby="drafts-heading"
