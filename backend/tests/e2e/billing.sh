@@ -43,6 +43,26 @@ read -r SCHEME PLAN < <($PSQL -tA -F' ' -c "
 req GET /coding/icd10?q=j06 "$T"; check "ICD-10 search by code prefix" J06.9 "$(j '.[0].code')"
 req GET "/coding/tariffs?q=consult" "$T"; check "tariff search by description" 2 "$(jq length <<<"$BODY")"
 
+# Reference rates and ICD-10 limits (global data, seeded as superuser).
+Y=$(TZ=Africa/Johannesburg date +%Y)
+$PSQL -q -c "
+  INSERT INTO tariff_prices (tariff_code_id, plan_id, year, price_cents)
+    SELECT id, NULL::uuid, $Y, 50000 FROM tariff_codes WHERE code = '0190'
+    UNION ALL SELECT id, '$PLAN'::uuid, $Y, 52000 FROM tariff_codes WHERE code = '0190'
+    UNION ALL SELECT id, NULL::uuid, $Y - 1, 45000 FROM tariff_codes WHERE code = '0190';
+  INSERT INTO icd10_codes (code, description, sex, min_age_years, max_age_years)
+    VALUES ('O80', 'Single spontaneous delivery', 'female', 12, 55);"
+req GET "/coding/tariff-price?code=0190&plan_id=$PLAN&date=$TODAY" "$T"
+check "plan rate for this year" "52000 plan" "$(j '"\(.price_cents) \(.source)"')"
+req GET "/coding/tariff-price?code=0190&date=$TODAY" "$T"
+check "private: default rate" "50000 default" "$(j '"\(.price_cents) \(.source)"')"
+req GET "/coding/tariff-price?code=0190&plan_id=$PLAN&date=$((Y - 1))-06-01" "$T"
+check "last year: falls back to that year's default" "45000 default $((Y - 1))" "$(j '"\(.price_cents) \(.source) \(.year)"')"
+req GET "/coding/tariff-price?code=0191&date=$TODAY" "$T"; check "no rate -> 404" 404 $CODE
+req GET "/coding/tariff-price?code=01&date=$TODAY" "$T"; check "bad code -> 422" 422 $CODE
+req GET "/coding/icd10?q=O80" "$T"
+check "ICD-10 search returns sex and age limits" "female 12 55" "$(j '.[0] | "\(.sex) \(.min_age_years) \(.max_age_years)"')"
+
 req GET /service-centres "$T"; ROOMS=$(j '.[0].id')
 check "Rooms seeded for new practice" "Rooms 11" "$(j '.[0] | "\(.name) \(.default_place_of_service)"')"
 req POST /service-centres "$T" '{"kind":"hospital","name":"Umhlanga Hospital","practice_number":"5555555"}'

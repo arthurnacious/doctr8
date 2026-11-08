@@ -1,10 +1,14 @@
 use sqlx::PgPool;
 
 use super::{
-    dto::{Icd10Code, Modifier, NappiCode, SearchQuery, TariffCode},
+    dto::{Icd10Code, Modifier, NappiCode, SearchQuery, TariffCode, TariffPrice, TariffPriceQuery},
     repository as repo,
 };
-use crate::common::{auth::TenantUser, db, error::AppResult};
+use crate::common::{
+    auth::TenantUser,
+    db,
+    error::{AppError, AppResult},
+};
 
 #[derive(Clone)]
 pub struct CodingService {
@@ -46,5 +50,13 @@ impl CodingService {
         let rows = repo::list_modifiers(&mut tx, &s).await?;
         tx.commit().await?;
         Ok(rows)
+    }
+
+    pub async fn tariff_price(&self, actor: &TenantUser, q: TariffPriceQuery) -> AppResult<TariffPrice> {
+        let l = q.validate()?;
+        let mut tx = db::begin(&self.pool, actor.scope()).await?;
+        let price = repo::tariff_price(&mut tx, &l).await?;
+        tx.commit().await?;
+        price.ok_or(AppError::NotFound("tariff price"))
     }
 }

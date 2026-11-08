@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::{
     dto::{
         CentreRef, ClaimResponse, ClaimStatus, ClaimStatusRequest, ClaimsFilter, CreateInvoiceRequest, CreditNoteRequest,
-        CreditNoteResponse, InvoiceListItem, InvoiceListPatient, InvoicePage, InvoicePatient, InvoiceResponse,
+        CreditNoteResponse, InvoiceListItem, NewInvoice, InvoiceListPatient, InvoicePage, InvoicePatient, InvoiceResponse,
         InvoiceSearch, InvoiceSearchRequest, LineItem, ProviderRef, SubmitClaimRequest, claim_status_after_payment,
     },
     repository::{self as repo, ListRow, ResolvedLine},
@@ -50,108 +50,13 @@ impl InvoicesService {
     /// medical aid on a medical aid account, otherwise by the patient.
     pub async fn create(&self, actor: &TenantUser, req: CreateInvoiceRequest) -> AppResult<InvoiceResponse> {
         let inv = req.validate(today())?;
-        let t = actor.tenant_id;
         let mut tx = db::begin(&self.pool, actor.scope()).await?;
-        db::lock(&mut tx, inv.account_id).await?;
-
-        let account = transactions::repository::account_billing(&mut tx, t, inv.account_id)
-            .await?
-            .ok_or(AppError::NotFound("account"))?;
-        if account.status != "open" {
-            return Err(AppError::Conflict("Invoices can't be added to a closed account".into()));
-        }
-        let patient = people::patients::repository::find(&mut tx, t, inv.patient_id).await?.ok_or(AppError::NotFound("patient"))?;
-        if patient.account_id != inv.account_id {
-            return Err(AppError::validation("That patient is not on this account"));
-        }
-
-        providers::service::usable(&mut tx, t, inv.treating_provider_id, Some(ProviderKind::Practice), "treating provider").await?;
-        if let Some(r) = inv.referring_provider_id {
-            providers::service::usable(&mut tx, t, r, None, "referring provider").await?;
-        }
-        let centre = providers::service::usable_centre(&mut tx, t, inv.service_centre_id).await?;
-
-        // Resolve reference codes up front so errors name the line.
-        let mut resolved = Vec::with_capacity(inv.lines.len());
-        for (i, l) in inv.lines.iter().enumerate() {
-            let at = |m: &str| AppError::validation(format!("lines[{i}]: {m}"));
-            let (tariff_code_id, default_description) = match &l.item {
-                LineItem::Tariff { code_set, code } => {
-                    let tc = coding::repository::find_tariff(&mut tx, code_set, code).await?.ok_or_else(|| at("unknown tariff code"))?;
-                    (Some(tc.id), tc.description)
-                }
-                LineItem::Nappi(code) => {
-                    let n = coding::repository::find_nappi(&mut tx, code).await?.ok_or_else(|| at("unknown NAPPI code"))?;
-                    (None, n.description)
-                }
-            };
-            if !coding::repository::unknown_icd10(&mut tx, &l.icd10_codes).await?.is_empty() {
-                return Err(at("unknown or inactive ICD-10 code"));
-            }
-            if !coding::repository::not_primary_icd10(&mut tx, &l.icd10_codes[..1]).await?.is_empty() {
-                return Err(at("the first ICD-10 code can't be used as a primary diagnosis"));
-            }
-            if !coding::repository::unknown_modifiers(&mut tx, &l.modifiers).await?.is_empty() {
-                return Err(at("unknown or inactive modifier"));
-            }
-            if let Some(a) = l.assistant_provider_id {
-                if a == inv.treating_provider_id {
-                    return Err(at("the assistant can't be the treating provider"));
-                }
-                providers::service::usable(&mut tx, t, a, None, "assistant provider").await?;
-            }
-            let place_of_service = l
-                .place_of_service
-                .clone()
-                .or_else(|| centre.default_place_of_service.clone())
-                .ok_or_else(|| at("place_of_service is required (the service centre has no default)"))?;
-            resolved.push((tariff_code_id, l.description.clone().unwrap_or(default_description), place_of_service));
-        }
-
-        let invoice_no = repo::next_number(&mut tx, t, "invoice").await?;
-        let invoice_id = repo::insert_invoice(&mut tx, t, &inv, invoice_no, actor.user_id).await?;
-        for (i, (l, (tariff_code_id, description, pos))) in inv.lines.iter().zip(&resolved).enumerate() {
-            let nappi = match &l.item {
-                LineItem::Nappi(n) => Some(n.as_str()),
-                LineItem::Tariff { .. } => None,
-            };
-            repo::insert_line(
-                &mut tx,
-                t,
-                invoice_id,
-                &ResolvedLine {
-                    line_no: (i + 1) as i16,
-                    service_date: l.service_date,
-                    tariff_code_id: *tariff_code_id,
-                    nappi_code: nappi,
-                    description,
-                    quantity: l.quantity,
-                    unit_price_cents: l.unit_price_cents,
-                    amount_cents: l.amount_cents,
-                    place_of_service: pos,
-                    assistant_provider_id: l.assistant_provider_id,
-                    icd10_codes: &l.icd10_codes,
-                    modifiers: &l.modifiers,
-                },
-            )
-            .await?;
-        }
-
-        let total = inv.total_cents();
-        let bucket = if account.membership_id.is_some() { Bucket::MedicalAid } else { Bucket::Patient };
-        let mut charge = NewTransaction::new(inv.account_id, TxnKind::Invoice, inv.invoice_date, total);
-        charge.invoice_id = Some(invoice_id);
-        charge.reference = Some(format!("INV{invoice_no}"));
-        charge.entries = vec![Entry { invoice_id: Some(invoice_id), bucket, amount_cents: total }];
-        transactions::service::post(&mut tx, t, actor.user_id, &charge).await?;
-
-        self.bus.publish(&mut tx, &Event::new(t, EventKind::InvoiceCreated, invoice_id).account(inv.account_id).invoice(invoice_id)).await?;
-        self.bus.publish(&mut tx, &Event::balance_changed(t, inv.account_id)).await?;
-
-        let out = load(&mut tx, t, invoice_id).await?;
+        let invoice_id = post_invoice(&mut tx, &self.bus, actor, &inv).await?;
+        let out = load(&mut tx, actor.tenant_id, invoice_id).await?;
         tx.commit().await?;
         Ok(out)
     }
+
 
     pub async fn get(&self, actor: &TenantUser, id: Uuid) -> AppResult<InvoiceResponse> {
         let mut tx = db::begin(&self.pool, actor.scope()).await?;
@@ -344,6 +249,108 @@ fn provider_ref(p: &ProviderResponse) -> ProviderRef {
         practice_number: p.practice_number.clone(),
         hpcsa_number: p.hpcsa_number.clone(),
     }
+}
+
+/// Post a validated invoice inside an existing transaction (also used when
+/// finalising a draft). Returns the new invoice's id.
+pub async fn post_invoice(tx: &mut PgConnection, bus: &EventBus, actor: &TenantUser, inv: &NewInvoice) -> AppResult<Uuid> {
+    let t = actor.tenant_id;
+    db::lock(&mut *tx, inv.account_id).await?;
+    let account = transactions::repository::account_billing(&mut *tx, t, inv.account_id)
+        .await?
+        .ok_or(AppError::NotFound("account"))?;
+    if account.status != "open" {
+        return Err(AppError::Conflict("Invoices can't be added to a closed account".into()));
+    }
+    let patient = people::patients::repository::find(&mut *tx, t, inv.patient_id).await?.ok_or(AppError::NotFound("patient"))?;
+    if patient.account_id != inv.account_id {
+        return Err(AppError::validation("That patient is not on this account"));
+    }
+
+    providers::service::usable(&mut *tx, t, inv.treating_provider_id, Some(ProviderKind::Practice), "treating provider").await?;
+    if let Some(r) = inv.referring_provider_id {
+        providers::service::usable(&mut *tx, t, r, None, "referring provider").await?;
+    }
+    let centre = providers::service::usable_centre(&mut *tx, t, inv.service_centre_id).await?;
+
+    // Resolve reference codes up front so errors name the line.
+    let mut resolved = Vec::with_capacity(inv.lines.len());
+    for (i, l) in inv.lines.iter().enumerate() {
+        let at = |m: &str| AppError::validation(format!("lines[{i}]: {m}"));
+        let (tariff_code_id, default_description) = match &l.item {
+            LineItem::Tariff { code_set, code } => {
+                let tc = coding::repository::find_tariff(&mut *tx, code_set, code).await?.ok_or_else(|| at("unknown tariff code"))?;
+                (Some(tc.id), tc.description)
+            }
+            LineItem::Nappi(code) => {
+                let n = coding::repository::find_nappi(&mut *tx, code).await?.ok_or_else(|| at("unknown NAPPI code"))?;
+                (None, n.description)
+            }
+        };
+        if !coding::repository::unknown_icd10(&mut *tx, &l.icd10_codes).await?.is_empty() {
+            return Err(at("unknown or inactive ICD-10 code"));
+        }
+        if !coding::repository::not_primary_icd10(&mut *tx, &l.icd10_codes[..1]).await?.is_empty() {
+            return Err(at("the first ICD-10 code can't be used as a primary diagnosis"));
+        }
+        if !coding::repository::unknown_modifiers(&mut *tx, &l.modifiers).await?.is_empty() {
+            return Err(at("unknown or inactive modifier"));
+        }
+        if let Some(a) = l.assistant_provider_id {
+            if a == inv.treating_provider_id {
+                return Err(at("the assistant can't be the treating provider"));
+            }
+            providers::service::usable(&mut *tx, t, a, None, "assistant provider").await?;
+        }
+        let place_of_service = l
+            .place_of_service
+            .clone()
+            .or_else(|| centre.default_place_of_service.clone())
+            .ok_or_else(|| at("place_of_service is required (the service centre has no default)"))?;
+        resolved.push((tariff_code_id, l.description.clone().unwrap_or(default_description), place_of_service));
+    }
+
+    let invoice_no = repo::next_number(&mut *tx, t, "invoice").await?;
+    let invoice_id = repo::insert_invoice(&mut *tx, t, inv, invoice_no, actor.user_id).await?;
+    for (i, (l, (tariff_code_id, description, pos))) in inv.lines.iter().zip(&resolved).enumerate() {
+        let nappi = match &l.item {
+            LineItem::Nappi(n) => Some(n.as_str()),
+            LineItem::Tariff { .. } => None,
+        };
+        repo::insert_line(
+            &mut *tx,
+            t,
+            invoice_id,
+            &ResolvedLine {
+                line_no: (i + 1) as i16,
+                service_date: l.service_date,
+                tariff_code_id: *tariff_code_id,
+                nappi_code: nappi,
+                description,
+                quantity: l.quantity,
+                unit_price_cents: l.unit_price_cents,
+                amount_cents: l.amount_cents,
+                place_of_service: pos,
+                assistant_provider_id: l.assistant_provider_id,
+                icd10_codes: &l.icd10_codes,
+                modifiers: &l.modifiers,
+            },
+        )
+        .await?;
+    }
+
+    let total = inv.total_cents();
+    let bucket = if account.membership_id.is_some() { Bucket::MedicalAid } else { Bucket::Patient };
+    let mut charge = NewTransaction::new(inv.account_id, TxnKind::Invoice, inv.invoice_date, total);
+    charge.invoice_id = Some(invoice_id);
+    charge.reference = Some(format!("INV{invoice_no}"));
+    charge.entries = vec![Entry { invoice_id: Some(invoice_id), bucket, amount_cents: total }];
+    transactions::service::post(&mut *tx, t, actor.user_id, &charge).await?;
+
+    bus.publish(&mut *tx, &Event::new(t, EventKind::InvoiceCreated, invoice_id).account(inv.account_id).invoice(invoice_id)).await?;
+    bus.publish(&mut *tx, &Event::balance_changed(t, inv.account_id)).await?;
+
+    Ok(invoice_id)
 }
 
 fn list_item(r: ListRow) -> InvoiceListItem {

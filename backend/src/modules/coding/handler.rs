@@ -4,7 +4,7 @@ use axum::{
 };
 
 use super::{
-    dto::{Icd10Code, Modifier, NappiCode, SearchQuery, TariffCode},
+    dto::{Icd10Code, Modifier, NappiCode, SearchQuery, TariffCode, TariffPrice, TariffPriceQuery},
     service::CodingService,
 };
 use crate::common::{auth::TenantUser, error::AppResult};
@@ -25,4 +25,9 @@ pub async fn nappi(State(svc): State<CodingService>, user: TenantUser, Query(q):
 
 pub async fn modifiers(State(svc): State<CodingService>, user: TenantUser, Query(q): Query<SearchQuery>) -> AppResult<Json<Vec<Modifier>>> {
     Ok(Json(svc.modifiers(&user, q).await?))
+}
+
+/// `GET /coding/tariff-price?code=0190&plan_id=…&date=…`
+pub async fn tariff_price(State(svc): State<CodingService>, user: TenantUser, Query(q): Query<TariffPriceQuery>) -> AppResult<Json<TariffPrice>> {
+    Ok(Json(svc.tariff_price(&user, q).await?))
 }

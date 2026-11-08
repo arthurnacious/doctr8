@@ -14,6 +14,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/coding/icd10", get(handler::icd10))
         .route("/coding/tariffs", get(handler::tariffs))
+        .route("/coding/tariff-price", get(handler::tariff_price))
         .route("/coding/nappi", get(handler::nappi))
         .route("/coding/modifiers", get(handler::modifiers))
 }

@@ -1,3 +1,4 @@
+use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -13,6 +14,10 @@ pub struct Icd10Code {
     pub code: String,
     pub description: String,
     pub valid_as_primary: bool,
+    /// Only for this sex ("female" | "male"), if limited.
+    pub sex: Option<String>,
+    pub min_age_years: Option<i16>,
+    pub max_age_years: Option<i16>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -72,6 +77,53 @@ impl SearchQuery {
     }
 }
 
+/// `?code=0190&code_set=CCSA&plan_id=…&date=2026-11-07`: the rate for a
+/// tariff code on a medical aid plan (omit plan_id for private) in the
+/// year of the service date.
+#[derive(Deserialize)]
+pub struct TariffPriceQuery {
+    pub code: String,
+    #[serde(default)]
+    pub code_set: Option<String>,
+    #[serde(default)]
+    pub plan_id: Option<Uuid>,
+    pub date: NaiveDate,
+}
+
+pub struct TariffPriceLookup {
+    pub code_set: String,
+    pub code: String,
+    pub plan_id: Option<Uuid>,
+    pub year: i16,
+}
+
+impl TariffPriceQuery {
+    pub fn validate(self) -> AppResult<TariffPriceLookup> {
+        let code = self.code.trim().to_uppercase();
+        if !(4..=6).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(AppError::validation("code must be 4-6 letters or digits"));
+        }
+        let year = i16::try_from(self.date.year()).map_err(|_| AppError::validation("date is out of range"))?;
+        Ok(TariffPriceLookup {
+            code_set: self.code_set.unwrap_or_else(|| DEFAULT_CODE_SET.into()).trim().to_uppercase(),
+            code,
+            plan_id: self.plan_id,
+            year,
+        })
+    }
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct TariffPrice {
+    pub code_set: String,
+    pub code: String,
+    pub year: i16,
+    pub price_cents: i64,
+    /// "plan": the plan's own rate; "default": the general rate (private
+    /// patients, or a plan without its own rate for this code).
+    pub source: &'static str,
+}
+
 /// Normalise an ICD-10 code as typed: upper case, no spaces, dot after
 /// the category ("j069" → "J06.9").
 pub fn normalise_icd10(code: &str) -> String {
@@ -103,6 +155,21 @@ mod tests {
         let s = SearchQuery { q: Some("j0_%".into()), code_set: None, limit: None }.validate().unwrap();
         assert_eq!(s.code_prefix.as_deref(), Some("J0\\_\\%"));
         assert_eq!(s.text.as_deref(), Some("j0\\_\\%"));
+    }
+
+    #[test]
+    fn tariff_price_query() {
+        let q = |code: &str| TariffPriceQuery {
+            code: code.into(),
+            code_set: Some(" ccsa ".into()),
+            plan_id: None,
+            date: NaiveDate::from_ymd_opt(2026, 11, 7).unwrap(),
+        }
+        .validate();
+        let l = q(" 0190 ").unwrap();
+        assert_eq!((l.code.as_str(), l.code_set.as_str(), l.year), ("0190", "CCSA", 2026));
+        assert!(q("01").is_err());
+        assert!(q("01-90").is_err());
     }
 
     #[test]
