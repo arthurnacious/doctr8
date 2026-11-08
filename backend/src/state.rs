@@ -12,7 +12,7 @@ use crate::{
             tenants::service::TenantsService, users::service::UsersService,
         },
         billing::{
-            invoices::service::InvoicesService, providers::service::ProvidersService,
+            drafts::service::DraftsService, invoices::service::InvoicesService, providers::service::ProvidersService,
             statements::service::StatementsService, transactions::service::TransactionsService,
         },
         coding::service::CodingService,
@@ -41,6 +41,7 @@ pub struct AppState {
     pub coding: CodingService,
     pub providers: ProvidersService,
     pub invoices: InvoicesService,
+    pub drafts: DraftsService,
     pub transactions: TransactionsService,
     pub statements: StatementsService,
 }
@@ -69,6 +70,7 @@ impl AppState {
             coding: CodingService::new(pool.clone()),
             providers: ProvidersService::new(pool.clone()),
             invoices: InvoicesService::new(pool.clone(), events.clone()),
+            drafts: DraftsService::new(pool.clone(), events.clone()),
             transactions: TransactionsService::new(pool.clone(), events.clone()),
             statements: StatementsService::new(pool),
             events,

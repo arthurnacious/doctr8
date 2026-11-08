@@ -2,6 +2,7 @@
 //!
 //! * `providers`    — doctors named on invoices, and service centres
 //! * `invoices`     — invoices, lines, credit notes, claims
+//! * `drafts`       — invoices being prepared (editable until finalised)
 //! * `transactions` — the money ledger: payments, refunds, remittances,
 //!   journals, liability transfers, reversals
 //! * `statements`   — account statement as of a date, with ageing
@@ -9,6 +10,7 @@
 //! Money is integer cents (`i64`) everywhere. Posted money is never edited
 //! or deleted; corrections are new transactions.
 
+pub mod drafts;
 pub mod invoices;
 pub mod providers;
 pub mod statements;
@@ -33,6 +35,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(providers::router())
         .merge(invoices::router())
+        .merge(drafts::router())
         .merge(transactions::router())
         .merge(statements::router())
 }

@@ -334,6 +334,32 @@ req POST /payments "$X" "{\"account_id\":\"$MA\",\"method\":\"cash\",\"amount_ce
 req GET /remittances/$RA "$X"; check "other practice can't read remittance -> 404" 404 $CODE
 req GET /claims "$X"; check "other practice's claims queue is empty" 0 "$(jq length <<<"$BODY")"
 
+echo "== invoice drafts"
+req POST /invoice-drafts "$T" "{\"account_id\":\"$PRIV\",\"content\":{\"patient_id\":\"$ZANELE\",\"lines\":[],\"ui\":{\"note\":\"screen only\"}}}"
+check "draft created" 201 $CODE; DRAFT=$(j .id); DRAFT_AT=$(j .updated_at)
+check "draft keeps screen-only details" "screen only" "$(j .content.ui.note)"
+req GET /accounts/$PRIV/invoice-drafts "$T"; check "drafts listed on the account" "$DRAFT" "$(j '.[0].id')"
+req POST /invoice-drafts/$DRAFT/finalise "$T"; check "incomplete draft can't be finalised -> 422" 422 $CODE
+contains "says what's missing" "choose the treating doctor" "$(j .error.message)"
+req GET /invoice-drafts/$DRAFT "$T"; check "failed finalise leaves the draft" 200 $CODE
+FULL="{\"patient_id\":\"$ZANELE\",\"treating_provider_id\":\"$DOC\",\"service_centre_id\":\"$ROOMS\",\"lines\":[{\"tariff_code\":\"0190\",\"unit_price_cents\":50000,\"icd10_codes\":[\"J06.9\"]}]}"
+req PUT /invoice-drafts/$DRAFT "$T" "{\"content\":$FULL,\"expected_updated_at\":\"2000-01-01T00:00:00Z\"}"
+check "stale edit refused -> 409" 409 $CODE
+req PUT /invoice-drafts/$DRAFT "$T" "{\"content\":$FULL,\"expected_updated_at\":\"$DRAFT_AT\"}"
+check "draft edited" "$DOC" "$(j .content.treating_provider_id)"
+NPOSTED=$($PSQL -tAc "SELECT count(*) FROM invoices")
+req PUT /invoice-drafts/$DRAFT "$T" '{"content":[1]}'; check "content must be an object -> 422" 422 $CODE
+check "drafts post nothing" "$NPOSTED" "$($PSQL -tAc "SELECT count(*) FROM invoices")"
+req POST /invoice-drafts/$DRAFT/finalise "$R"; check "reception can't finalise -> 403" 403 $CODE
+req GET /invoice-drafts/$DRAFT "$X"; check "other practice can't read a draft -> 404" 404 $CODE
+req POST /invoice-drafts/$DRAFT/finalise "$T"; check "draft finalised into an invoice" 201 $CODE
+check "finalised invoice gets the next number" "$((NPOSTED + 1))" "$(j .invoice_no)"
+check "finalised invoice is posted" 50000 "$(j .patient_due_cents)"
+req GET /invoice-drafts/$DRAFT "$T"; check "draft is gone after finalising" 404 $CODE
+req POST /invoice-drafts "$T" "{\"account_id\":\"$PRIV\"}"; D2=$(j .id)
+req DELETE /invoice-drafts/$D2 "$T"; check "draft discarded" 204 $CODE
+req DELETE /invoice-drafts/$D2 "$T"; check "discarding twice -> 404" 404 $CODE
+
 echo "== websocket events"
 sleep 0.5; kill $PROBE_OWNER $PROBE_REC 2>/dev/null; wait $PROBE_OWNER $PROBE_REC 2>/dev/null
 events() { jq -c 'select(.type == "event")' "$1"; }

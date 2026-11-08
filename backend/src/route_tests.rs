@@ -93,6 +93,12 @@ fn routes() -> Vec<(Method, String, Guard)> {
         // billing: invoices and claims
         r(Method::POST, "/invoices", Requires(P::BillingManage)),
         r(Method::POST, "/invoices/search", Requires(P::BillingView)),
+        r(Method::POST, "/invoice-drafts", Requires(P::BillingManage)),
+        r(Method::GET, "/invoice-drafts/{id}", Requires(P::BillingView)),
+        r(Method::PUT, "/invoice-drafts/{id}", Requires(P::BillingManage)),
+        r(Method::DELETE, "/invoice-drafts/{id}", Requires(P::BillingManage)),
+        r(Method::POST, "/invoice-drafts/{id}/finalise", Requires(P::BillingManage)),
+        r(Method::GET, "/accounts/{id}/invoice-drafts", Requires(P::BillingView)),
         r(Method::GET, "/invoices/{id}", Requires(P::BillingView)),
         r(Method::GET, "/accounts/{id}/invoices", Requires(P::BillingView)),
         r(Method::POST, "/invoices/{id}/credit-notes", Requires(P::BillingManage)),
