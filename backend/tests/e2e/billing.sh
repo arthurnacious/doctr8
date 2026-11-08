@@ -180,10 +180,12 @@ req POST /claims/$CLAIM/status "$T" '{"status":"paid"}'; check "claim marked pai
 echo "== payments, credit notes, refunds"
 req POST /payments "$T" "{\"account_id\":\"$PRIV\",\"method\":\"card\",\"amount_cents\":20000}"
 check "card payment allocated to the invoice" "$INV_P -20000" "$(j '.entries[0] | "\(.invoice_id) \(.amount_cents)"')"
+check "payment gets receipt number 1" 1 "$(j .receipt_no)"
 req GET /accounts/$PRIV/balance "$T"; check "patient owes R345" 34500 "$(j .patient_cents)"
 req POST /payments "$T" "{\"account_id\":\"$PRIV\",\"method\":\"cash\",\"amount_cents\":40000,\"allocations\":[{\"invoice_id\":\"$INV_P\",\"amount_cents\":40000}]}"
 check "allocating more than owed on an invoice -> 422" 422 $CODE
 req POST /payments "$T" "{\"account_id\":\"$PRIV\",\"method\":\"eft\",\"amount_cents\":40000,\"reference\":\"EFT-9\"}"
+check "receipts stay gapless (the refused payment used no number)" 2 "$(j .receipt_no)"
 check "overpayment: rest stays as credit" "-34500 -5500" "$(j '[.entries[] | .amount_cents] | map(tostring) | join(" ")')"
 req GET /accounts/$PRIV/balance "$T"; check "R55 credit on account" "-5500 -5500" "$(j '"\(.patient_cents) \(.unallocated_cents)"')"
 

@@ -150,6 +150,8 @@ pub struct NewTransaction {
     pub remittance_id: Option<Uuid>,
     pub reason_type_id: Option<Uuid>,
     pub reverses_transaction_id: Option<Uuid>,
+    /// Patient payments only: the practice's receipt number.
+    pub receipt_no: Option<i64>,
     pub entries: Vec<Entry>,
 }
 
@@ -169,6 +171,7 @@ impl NewTransaction {
             remittance_id: None,
             reason_type_id: None,
             reverses_transaction_id: None,
+            receipt_no: None,
             entries: Vec::new(),
         }
     }
@@ -201,6 +204,7 @@ pub struct TransactionResponse {
     pub reason: Option<ReasonRef>,
     pub reverses_transaction_id: Option<Uuid>,
     pub reversed_by_transaction_id: Option<Uuid>,
+    pub receipt_no: Option<i64>,
     pub entries: Vec<EntryResponse>,
 }
 

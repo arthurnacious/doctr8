@@ -8,8 +8,9 @@ pub async fn insert_transaction(conn: &mut PgConnection, tenant_id: Uuid, t: &Ne
     sqlx::query_scalar(
         "INSERT INTO transactions
                 (tenant_id, account_id, kind, txn_date, amount_cents, payment_method, reference, notes,
-                 invoice_id, claim_id, credit_note_id, remittance_id, reason_type_id, reverses_transaction_id, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                 invoice_id, claim_id, credit_note_id, remittance_id, reason_type_id, reverses_transaction_id, created_by,
+                 receipt_no)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING id",
     )
     .bind(tenant_id)
@@ -27,6 +28,7 @@ pub async fn insert_transaction(conn: &mut PgConnection, tenant_id: Uuid, t: &Ne
     .bind(t.reason_type_id)
     .bind(t.reverses_transaction_id)
     .bind(by)
+    .bind(t.receipt_no)
     .fetch_one(conn)
     .await
 }
@@ -146,6 +148,7 @@ pub struct TxnRow {
     pub reason_name: Option<String>,
     pub reverses_transaction_id: Option<Uuid>,
     pub reversed_by: Option<Uuid>,
+    pub receipt_no: Option<i64>,
 }
 
 const TXN_SELECT: &str = "
@@ -153,7 +156,8 @@ const TXN_SELECT: &str = "
            t.notes, t.invoice_id, t.claim_id, t.credit_note_id, t.remittance_id, t.reason_type_id,
            r.code AS reason_code, r.name AS reason_name, t.reverses_transaction_id,
            (SELECT x.id FROM transactions x
-             WHERE x.tenant_id = t.tenant_id AND x.reverses_transaction_id = t.id) AS reversed_by
+             WHERE x.tenant_id = t.tenant_id AND x.reverses_transaction_id = t.id) AS reversed_by,
+           t.receipt_no
       FROM transactions t
       LEFT JOIN journal_reason_types r ON r.tenant_id = t.tenant_id AND r.id = t.reason_type_id";
 

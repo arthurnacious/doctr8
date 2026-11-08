@@ -33,6 +33,7 @@ pub struct LedgerRow {
     pub kind: TxnKind,
     pub txn_date: NaiveDate,
     pub reference: Option<String>,
+    pub receipt_no: Option<i64>,
     /// Kept for internal use; statements never print free-text notes.
     #[allow(dead_code)]
     pub notes: Option<String>,

@@ -104,6 +104,7 @@ impl TransactionsService {
         n.reference = p.reference;
         n.notes = p.notes;
         n.entries = entries;
+        n.receipt_no = Some(invoices::repository::next_number(&mut tx, t, "receipt").await?);
         let id = post(&mut tx, t, actor.user_id, &n).await?;
 
         self.bus.publish(&mut tx, &Event::balance_changed(t, p.account_id)).await?;
@@ -426,6 +427,7 @@ async fn with_entries(conn: &mut PgConnection, tenant_id: Uuid, rows: Vec<TxnRow
                 remittance_id: r.remittance_id,
                 reverses_transaction_id: r.reverses_transaction_id,
                 reversed_by_transaction_id: r.reversed_by,
+                receipt_no: r.receipt_no,
             })
         })
         .collect()

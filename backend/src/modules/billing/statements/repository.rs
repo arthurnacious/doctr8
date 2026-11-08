@@ -10,6 +10,7 @@ pub struct LedgerDbRow {
     pub kind: String,
     pub txn_date: NaiveDate,
     pub reference: Option<String>,
+    pub receipt_no: Option<i64>,
     pub notes: Option<String>,
     pub reason_name: Option<String>,
     pub payment_method: Option<String>,
@@ -25,7 +26,7 @@ pub struct LedgerDbRow {
 /// claim-submitted records (which have no entries).
 pub async fn ledger(conn: &mut PgConnection, tenant_id: Uuid, account_id: Uuid, as_of: NaiveDate) -> Result<Vec<LedgerDbRow>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT t.id AS transaction_id, t.kind, t.txn_date, t.reference, t.notes, r.name AS reason_name,
+        "SELECT t.id AS transaction_id, t.kind, t.txn_date, t.reference, t.receipt_no, t.notes, r.name AS reason_name,
                 t.payment_method, t.reverses_transaction_id,
                 (SELECT x.txn_date FROM transactions x
                   WHERE x.tenant_id = t.tenant_id AND x.reverses_transaction_id = t.id) AS reversed_on,

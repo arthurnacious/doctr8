@@ -162,6 +162,7 @@ pub async fn ledger_rows(conn: &mut sqlx::PgConnection, tenant_id: Uuid, account
                     kind: TxnKind::from_db(&r.kind)?,
                     txn_date: r.txn_date,
                     reference: r.reference,
+                    receipt_no: r.receipt_no,
                     notes: r.notes,
                     reason_name: r.reason_name,
                     payment_method: r.payment_method,
@@ -320,9 +321,13 @@ pub fn describe(r: &LedgerRow) -> String {
         (TxnKind::Refund, _, Some(m)) => format!("Refund ({})", m.to_uppercase()),
         (k, _, _) => k.label().to_owned(),
     };
-    match r.reference.as_deref() {
+    let with_ref = match r.reference.as_deref() {
         Some(reference) if !reference.is_empty() => format!("{base} {reference}"),
         _ => base,
+    };
+    match r.receipt_no {
+        Some(n) => format!("{with_ref} · receipt {n}"),
+        None => with_ref,
     }
 }
 
@@ -345,6 +350,7 @@ mod tests {
             kind,
             txn_date: on,
             reference: None,
+            receipt_no: None,
             notes: None,
             reason_name: None,
             payment_method: None,
@@ -494,6 +500,8 @@ mod tests {
         p.payment_method = Some("eft".into());
         p.reference = Some("REF123".into());
         assert_eq!(describe(&p), "Payment received (EFT) REF123");
+        p.receipt_no = Some(12);
+        assert_eq!(describe(&p), "Payment received (EFT) REF123 · receipt 12");
         let r = row(3, TxnKind::Remittance, d, Some(1), Bucket::MedicalAid, -1, d);
         assert_eq!(describe(&r), "Medical aid payment");
     }
