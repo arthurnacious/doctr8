@@ -62,14 +62,17 @@ src/
     _auth/choose-practice.tsx
     _app.tsx                 app layout + route guard: sidebar, top bar, realtime
     _app/index.tsx           dashboard ("/")
-    _app/<section>.tsx       diary, billing, claims, finance, settings
+    _app/<section>.tsx       diary, claims, finance, settings
+    _app/billing/            invoice list, invoice view, invoice drafts
     _app/patients/           list, file view (+ editing), new-file flow,
                              account statement
   features/
     patients/                API hooks, types, formatting, error wording,
                              new-file/ and edit/ form models (zod) and forms
-    billing/                 statement: API hook, types, rand formatting,
-                             visit grouping (statement.ts) and StatementView
+    billing/                 statements and invoices: API hooks, types, rand
+                             formatting, StatementView, InvoiceView, print setup
+      draft/                 invoice entry: draft model (zod), code search, editor
+      corrections/           credit notes, payments, liability moves, journals
   components/
     ui/                      Button, TextField, PasswordField, Checkbox, Tabs …
     form/                    TanStack Form hook + field components (useAppForm)

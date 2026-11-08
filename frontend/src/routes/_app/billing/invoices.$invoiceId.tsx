@@ -1,9 +1,10 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Printer } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { Alert } from '#/components/ui/Field'
 import { InvoiceView } from '#/features/billing/InvoiceView'
+import { PrintPageSetup } from '#/features/billing/PrintPageSetup'
 import { useInvoice } from '#/features/billing/api'
 import { InvoiceActions } from '#/features/billing/corrections/InvoiceActions'
 import { todayInSA } from '#/features/billing/statement'
@@ -30,14 +31,32 @@ function InvoicePage() {
         <ArrowLeft className="size-4" aria-hidden="true" />
         Billing
       </Link>
-      <h1 className="text-2xl font-semibold tracking-tight text-text">
-        Invoice{' '}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-text">
+          Invoice{' '}
+          {invoice.data && (
+            <span className="invoice-key tabular-nums text-accent">
+              {invoice.data.invoice_no}
+            </span>
+          )}
+        </h1>
         {invoice.data && (
-          <span className="invoice-key tabular-nums text-accent">
-            {invoice.data.invoice_no}
-          </span>
+          <Button
+            variant="secondary"
+            className="no-print"
+            onClick={() => window.print()}
+          >
+            <Printer className="size-4" aria-hidden="true" />
+            Print or save as PDF
+          </Button>
         )}
-      </h1>
+      </div>
+      {invoice.data && (
+        <PrintPageSetup
+          practice={invoice.data.practice.name}
+          label={`Invoice ${invoice.data.invoice_no}`}
+        />
+      )}
       {invoice.isError ? (
         <div className="flex flex-col items-start gap-4">
           <Alert>

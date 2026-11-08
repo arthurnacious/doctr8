@@ -110,10 +110,10 @@
 }
 
 /*
- * Print: A4, light on white whatever the app theme. App chrome and screen
+ * Print (statements and invoices): A4, light on white whatever the app theme. App chrome and screen
  * controls (.no-print) are left off; collapsed invoices print in full.
  * The page header (practice name, account number) and page numbers are set
- * per statement in @page margin boxes (see PrintPageSetup).
+ * per document in @page margin boxes (see PrintPageSetup).
  */
 @media print {
   :root,
@@ -161,17 +161,20 @@
     padding: 0;
   }
 
-  .statement-page {
+  .statement-page,
+  .invoice-page {
     max-width: none;
     gap: 4mm;
   }
 
-  .statement {
+  .statement,
+  .invoice {
     gap: 4mm;
   }
 
   .statement-block,
-  .statement-visit {
+  .statement-visit,
+  .invoice-block {
     border-radius: 0;
     padding: 0;
     border: 0;
@@ -196,11 +199,13 @@
     margin-left: 0;
   }
 
-  .statement-table {
+  .statement-table,
+  .invoice-table {
     overflow: visible;
   }
 
-  .statement-table table {
+  .statement-table table,
+  .invoice-table table {
     min-width: 0 !important;
   }
 
@@ -214,11 +219,13 @@
   }
 
   /* Green only for the small section headings on paper. */
-  .statement-key {
+  .statement-key,
+  .invoice-key {
     color: var(--color-text) !important;
   }
 
-  .statement-label {
+  .statement-label,
+  .invoice-label {
     color: var(--color-accent) !important;
   }
 
@@ -227,6 +234,8 @@
   .statement-totals,
   .statement-ageing,
   .statement-closing,
+  .invoice-closing,
+  .invoice-totals,
   tr {
     break-inside: avoid;
   }

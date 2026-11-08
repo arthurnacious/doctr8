@@ -103,7 +103,7 @@ function StatementPage() {
       {statement.data && (
         <PrintPageSetup
           practice={statement.data.practice.name}
-          accountNo={statement.data.account.account_no}
+          label={`Account ${statement.data.account.account_no}`}
         />
       )}
 

@@ -4,7 +4,7 @@ import { cssString, pageMarginCss } from './PrintPageSetup'
 
 describe('print page setup', () => {
   it('repeats practice and account, and numbers pages', () => {
-    const css = pageMarginCss('Practice A', 32)
+    const css = pageMarginCss('Practice A', 'Account 32')
     expect(css).toContain('@top-left { content: "Practice A · Account 32"')
     expect(css).toContain('counter(page) " of " counter(pages)')
   })

@@ -2,10 +2,10 @@
  * Page header and numbers for the printed statement, in CSS @page margin
  * boxes so they repeat on every A4 page (supported in Chromium-based
  * browsers; others print without them). The text is the practice name and
- * account number only, never patient details.
+ * a document number only, never patient details.
  */
-export function pageMarginCss(practice: string, accountNo: number): string {
-  const text = `${practice} · Account ${accountNo}`
+export function pageMarginCss(practice: string, label: string): string {
+  const text = `${practice} · ${label}`
   return `@media print { @page {
   @top-left { content: ${cssString(text)}; font: 8pt sans-serif; color: #404040; }
   @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt sans-serif; color: #404040; }
@@ -21,12 +21,13 @@ export function cssString(value: string): string {
     .replace(/</g, '\\3c ')}"`
 }
 
+/** `label` names the document, e.g. "Account 32" or "Invoice 7". */
 export function PrintPageSetup({
   practice,
-  accountNo,
+  label,
 }: {
   practice: string
-  accountNo: number
+  label: string
 }) {
-  return <style>{pageMarginCss(practice, accountNo)}</style>
+  return <style>{pageMarginCss(practice, label)}</style>
 }

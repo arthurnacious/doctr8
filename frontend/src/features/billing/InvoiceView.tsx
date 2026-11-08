@@ -8,6 +8,7 @@ import { Link } from '@tanstack/react-router'
 import { useCan } from '#/lib/auth/session'
 import { formatDate, fullName } from '../patients/format'
 import { useProviders } from './api'
+import { HowToPay } from './HowToPay'
 import {
   claimLabel,
   dueLabel,
@@ -133,6 +134,37 @@ export function InvoiceView({
           lines={inv.transactions}
           caption={`Transactions on invoice ${inv.invoice_no}`}
         />
+      </section>
+
+      <section
+        aria-label="Payment details"
+        className="invoice-closing invoice-block grid gap-5 rounded-lg border border-border bg-panel p-5 md:grid-cols-2"
+      >
+        <HowToPay
+          practice={inv.practice}
+          accountNo={inv.account_no}
+          labelClass="invoice-label"
+          document="invoice"
+        />
+        <div>
+          <h2 className="invoice-label text-xs font-semibold uppercase tracking-wide text-subtle">
+            Medical aid and patient responsibility
+          </h2>
+          <p className="mt-2 text-sm text-text">
+            {inv.medical_aid
+              ? 'This invoice is claimed from your medical aid, which pays according to its rules and your plan. Anything it does not pay is the responsibility of the account holder.'
+              : 'This is a private account: the account holder is responsible for the full amount.'}
+          </p>
+        </div>
+        <p className="print-only text-xs text-subtle md:col-span-2">
+          Invoice {inv.invoice_no} dated {formatDate(inv.invoice_date)}, printed{' '}
+          {new Intl.DateTimeFormat('en-ZA', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZone: 'Africa/Johannesburg',
+          }).format(new Date())}
+          .
+        </p>
       </section>
     </article>
   )

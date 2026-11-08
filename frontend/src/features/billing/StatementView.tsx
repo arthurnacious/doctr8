@@ -8,6 +8,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 
 import { Button } from '#/components/ui/Button'
 import { FILE_MODE_LABELS, formatDate, fullName } from '../patients/format'
+import { HowToPay } from './HowToPay'
 import { formatRand } from './money'
 import { TransactionsTable, num, td, th } from './tables'
 import {
@@ -656,59 +657,19 @@ function AgeingTable({ s }: { s: Statement }) {
 // Closing: how to pay, and who is responsible for what
 // -----------------------------------------------------------------------------
 
-export function hasBankDetails(p: Statement['practice']): boolean {
-  return Boolean(p.bank_name && p.bank_account_number)
-}
-
 function StatementClosing({ s }: { s: Statement }) {
   const p = s.practice
-  const bank = hasBankDetails(p)
   return (
     <section
       aria-label="Payment and responsibility"
       className="statement-closing statement-block grid gap-5 rounded-lg border border-border bg-panel p-5 md:grid-cols-2"
     >
-      <div>
-        <h2 className="statement-label text-xs font-semibold uppercase tracking-wide text-subtle">
-          How to pay
-        </h2>
-        {bank ? (
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-            <dt className="text-muted">Bank</dt>
-            <dd className="text-text">{p.bank_name}</dd>
-            {p.bank_account_name && (
-              <>
-                <dt className="text-muted">Account name</dt>
-                <dd className="text-text">{p.bank_account_name}</dd>
-              </>
-            )}
-            <dt className="text-muted">Account number</dt>
-            <dd className="font-mono text-text">{p.bank_account_number}</dd>
-            {p.bank_branch_code && (
-              <>
-                <dt className="text-muted">Branch code</dt>
-                <dd className="font-mono text-text">{p.bank_branch_code}</dd>
-              </>
-            )}
-            <dt className="text-muted">Reference</dt>
-            <dd className="font-semibold tabular-nums text-text">
-              {s.account.account_no}
-            </dd>
-          </dl>
-        ) : (
-          <p className="mt-2 text-sm text-muted">
-            <span className="no-print">
-              The practice&rsquo;s banking details aren&rsquo;t set up yet, so
-              they&rsquo;re left off the printed statement.
-            </span>
-          </p>
-        )}
-        {bank && (
-          <p className="mt-2 text-sm text-muted">
-            Please use your account number as the payment reference.
-          </p>
-        )}
-      </div>
+      <HowToPay
+        practice={p}
+        accountNo={s.account.account_no}
+        labelClass="statement-label"
+        document="statement"
+      />
       <div>
         <h2 className="statement-label text-xs font-semibold uppercase tracking-wide text-subtle">
           Medical aid and patient responsibility
